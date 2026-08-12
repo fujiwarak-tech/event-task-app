@@ -1,0 +1,2931 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PG イベントタスク管理</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Helvetica Neue', Arial, 'Hiragino Sans', 'Yu Gothic', sans-serif; background: #f4f4f0; color: #333; font-size: 14px; }
+
+/* NAV */
+.nav { background: #e05a00; color: white; padding: 0 20px; display: flex; align-items: center; height: 54px; gap: 0; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+.nav-title { font-size: 15px; font-weight: 700; margin-right: 28px; white-space: nowrap; letter-spacing: 0.3px; }
+.nav-tabs { display: flex; height: 100%; }
+.nav-tab { padding: 0 18px; height: 100%; display: flex; align-items: center; cursor: pointer; border-bottom: 3px solid transparent; font-size: 13px; transition: all 0.15s; user-select: none; }
+.nav-tab:hover { background: rgba(255,255,255,0.12); }
+.nav-tab.active { border-bottom-color: white; font-weight: 700; }
+
+/* MAIN */
+.main { max-width: 1080px; margin: 0 auto; padding: 24px 20px; }
+
+/* BUTTONS */
+.btn { padding: 8px 16px; border: none; border-radius: 7px; cursor: pointer; font-size: 13px; font-weight: 600; transition: all 0.15s; }
+.btn-primary { background: #e05a00; color: white; }
+.btn-primary:hover { background: #c44e00; }
+.btn-secondary { background: white; color: #444; border: 1.5px solid #ddd; }
+.btn-secondary:hover { background: #f5f5f5; border-color: #bbb; }
+.btn-sm { padding: 5px 11px; font-size: 12px; }
+.btn-danger { background: #fee; color: #c00; border: 1.5px solid #fcc; }
+.btn-danger:hover { background: #fcc; }
+.icon-btn { background: none; border: none; cursor: pointer; padding: 3px 5px; color: #bbb; font-size: 14px; border-radius: 4px; transition: all 0.1s; }
+.icon-btn:hover { color: #555; background: #f0f0f0; }
+
+/* SECTION HEADER */
+.section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+.section-title { font-size: 17px; font-weight: 700; color: #222; }
+
+/* MONTH GROUP */
+.month-group { margin-bottom: 28px; }
+.month-label { font-size: 11px; font-weight: 700; color: #999; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 10px; padding: 0 2px; }
+
+/* EVENT CARD */
+.event-card { background: white; border-radius: 10px; margin-bottom: 10px; border: 1px solid #e5e5e0; overflow: hidden; transition: box-shadow 0.15s; }
+.event-card:hover { box-shadow: 0 2px 10px rgba(0,0,0,0.07); }
+.event-card.has-overdue { border-left: 3px solid #e53935; }
+.event-card.dragging { opacity: 0.4; box-shadow: none; }
+.event-card.drag-over { border-top: 3px solid #e05a00; }
+.drag-handle { cursor: grab; color: #ccc; font-size: 16px; padding: 0 4px 0 0; flex-shrink: 0; user-select: none; }
+.drag-handle:hover { color: #999; }
+.event-card:not(:hover) .drag-handle { opacity: 0; }
+.event-header { padding: 13px 16px; display: flex; align-items: center; gap: 11px; cursor: pointer; user-select: none; }
+.event-header:hover { background: #fafaf8; }
+.type-badge { font-size: 10px; padding: 3px 8px; border-radius: 10px; font-weight: 700; white-space: nowrap; }
+.event-name-text { font-size: 14px; font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.event-date-text { font-size: 12px; color: #999; white-space: nowrap; }
+.progress-wrap { display: flex; align-items: center; gap: 7px; }
+.progress-bar { width: 70px; height: 5px; background: #eee; border-radius: 3px; overflow: hidden; }
+.progress-fill { height: 100%; background: #4caf50; border-radius: 3px; transition: width 0.3s; }
+.progress-label { font-size: 11px; color: #aaa; white-space: nowrap; }
+.chevron { color: #ccc; font-size: 11px; transition: transform 0.2s; flex-shrink: 0; }
+.chevron.open { transform: rotate(180deg); }
+
+/* TASK LIST */
+.task-list { border-top: 1px solid #f0f0ee; }
+.task-row { display: flex; align-items: center; gap: 10px; padding: 9px 16px; border-bottom: 1px solid #f5f5f3; transition: background 0.1s; }
+.task-row:last-of-type { border-bottom: none; }
+.task-row:hover { background: #fafaf8; }
+.task-row.is-overdue { background: #fff8f8; }
+.task-check { width: 15px; height: 15px; cursor: pointer; accent-color: #e05a00; flex-shrink: 0; }
+.task-name-cell { flex: 1; font-size: 13px; min-width: 0; }
+.task-name-cell.done { text-decoration: line-through; color: #bbb; }
+.task-row.task-done-row { background: #f5f5f5; }
+.task-row.task-done-row .assignee-tag { opacity: 0.4; }
+.task-row.task-done-row .due-cell { color: #ccc; }
+.event-card.all-done { background: #f0f0ee; border-color: #ddd; }
+.event-card.all-done .event-header { background: #f0f0ee; }
+.event-card.all-done .event-name-text { color: #aaa; }
+.event-card.all-done .type-badge { opacity: 0.35; }
+.event-card.all-done .event-date-text { color: #bbb; }
+.event-card.all-done .progress-fill { background: #bbb; }
+.task-note-inline { font-size: 11px; color: #bbb; margin-left: 6px; }
+.assignee-tag { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 700; white-space: nowrap; flex-shrink: 0; }
+.attr-badge { font-size: 11px; padding: 2px 7px; border-radius: 10px; font-weight: 600; white-space: nowrap; flex-shrink: 0; background: #e0e7ff; color: #4338ca; }
+.noevent-tasks-group { border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; margin-bottom: 8px; }
+.noevent-tasks-header { padding: 6px 16px; font-size: 11px; font-weight: 600; color: #9ca3af; background: #f9fafb; text-transform: uppercase; letter-spacing: 0.05em; }
+/* PERSONAL VIEW */
+.personal-section { background: white; border-radius: 10px; border: 1px solid #e5e5e0; margin-bottom: 16px; overflow: hidden; }
+.personal-section-header { display: flex; align-items: center; gap: 10px; padding: 14px 18px; background: #f8f8f8; border-bottom: 1px solid #eee; cursor: pointer; }
+.personal-avatar { width: 32px; height: 32px; border-radius: 50%; background: #e05a00; color: white; font-weight: 700; font-size: 14px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.personal-name { font-weight: 700; font-size: 15px; flex: 1; }
+.personal-count { font-size: 12px; color: #999; }
+.personal-chevron { color: #bbb; transition: transform 0.2s; }
+.personal-chevron.open { transform: rotate(180deg); }
+.personal-group-label { padding: 8px 18px 4px; font-size: 11px; font-weight: 700; color: #aaa; text-transform: uppercase; letter-spacing: 0.05em; background: #fafafa; border-top: 1px solid #f0f0f0; }
+.personal-task-row { display: flex; align-items: center; gap: 10px; padding: 9px 18px; border-bottom: 1px solid #f5f5f5; }
+.personal-task-row:last-child { border-bottom: none; }
+.personal-task-row.is-overdue { background: #fff8f8; }
+.personal-task-row.done-row { opacity: 0.5; }
+.personal-event-label { font-size: 11px; color: #999; background: #f3f4f6; border-radius: 4px; padding: 1px 6px; white-space: nowrap; max-width: 120px; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
+.due-cell { font-size: 12px; color: #999; white-space: nowrap; min-width: 90px; }
+.due-cell.overdue { color: #e53935; font-weight: 700; }
+.row-actions { display: flex; gap: 2px; opacity: 0; transition: opacity 0.1s; }
+.task-row:hover .row-actions { opacity: 1; }
+.add-task-btn-row { padding: 8px 16px; }
+.add-task-link { background: none; border: none; cursor: pointer; color: #ccc; font-size: 12px; display: flex; align-items: center; gap: 4px; padding: 3px 0; }
+.add-task-link:hover { color: #e05a00; }
+
+/* EVENT ACTIONS */
+.event-card-actions { display: flex; gap: 6px; align-items: center; }
+
+/* ASSIGNEE FILTERS */
+.assignee-sticky-header { position: sticky; top: 54px; z-index: 90; background: #f4f4f0; padding: 10px 0 8px; border-bottom: 1px solid #e8e8e4; margin-bottom: 12px; }
+.filter-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.filter-btn { padding: 6px 14px; border-radius: 20px; border: 1.5px solid #e0e0e0; background: white; cursor: pointer; font-size: 13px; font-weight: 600; transition: all 0.15s; }
+.filter-btn:hover { border-color: #e05a00; color: #e05a00; }
+.filter-btn.active { background: #e05a00; color: white; border-color: #e05a00; }
+.toggle-done-wrap { display: flex; align-items: center; gap: 7px; font-size: 12px; color: #888; margin-bottom: 0; }
+.toggle-done-wrap input { accent-color: #e05a00; }
+/* TASK DRAG */
+.a-task-row { cursor: default; }
+.a-task-row.drag-over { border-top: 2px solid #e05a00; }
+.drag-handle { cursor: grab; color: #ccc; font-size: 14px; padding: 0 4px; user-select: none; }
+.drag-handle:active { cursor: grabbing; }
+/* SEARCH BOX */
+.search-wrap { position: relative; }
+.search-input { width: 220px; padding: 6px 10px 6px 30px; border: 1.5px solid #ddd; border-radius: 20px; font-size: 13px; background: white; outline: none; transition: border-color 0.15s; }
+.search-input:focus { border-color: #e05a00; }
+.search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #bbb; font-size: 13px; pointer-events: none; }
+
+/* INLINE EDITING */
+.task-row.inline-editing, .a-task-row.inline-editing, .personal-task-row.inline-editing { background: #fff8f0; outline: 2px solid #e05a00; outline-offset: -2px; cursor: default; }
+.inline-row-new { background: #f9f9f6; border: 1.5px dashed #ddd; border-radius: 8px; padding: 8px 14px; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
+.inline-row-new:focus-within { border-color: #e05a00; background: #fff8f0; }
+.inline-field { border: none; border-bottom: 1.5px solid #e0c8b0; background: transparent; font-size: 13px; outline: none; padding: 2px 4px; font-family: inherit; color: inherit; min-width: 0; }
+.inline-field:focus { border-bottom-color: #e05a00; }
+.inline-field.f-name { flex: 1; }
+.inline-field.f-date { width: 128px; }
+.inline-field.f-assignee { max-width: 90px; }
+.inline-save-btn { background: #e05a00; color: white; border: none; border-radius: 5px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
+.inline-cancel-btn { background: none; border: none; color: #bbb; font-size: 16px; cursor: pointer; line-height: 1; padding: 0 4px; }
+.inline-cancel-btn:hover { color: #e53935; }
+
+/* ASSIGNEE TASK ROW */
+.a-task-row { background: white; border-radius: 8px; padding: 10px 14px; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; border: 1px solid #e8e8e5; transition: box-shadow 0.1s; }
+.a-task-row:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+.a-task-row.is-overdue { border-left: 3px solid #e53935; background: #fff8f8; }
+.event-tag { font-size: 11px; color: #aaa; background: #f5f5f3; padding: 2px 8px; border-radius: 5px; white-space: nowrap; max-width: 140px; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
+
+/* ROUTINE */
+.routine-card { background: white; border-radius: 10px; border: 1px solid #e5e5e0; padding: 16px; margin-bottom: 14px; }
+.routine-section-title { font-size: 13px; font-weight: 700; color: #888; margin-bottom: 12px; }
+
+/* MODAL */
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; z-index: 500; padding: 16px; }
+.modal { background: white; border-radius: 12px; padding: 26px; width: 100%; max-width: 500px; max-height: 92vh; overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+.modal-title { font-size: 17px; font-weight: 700; margin-bottom: 22px; color: #222; }
+.form-group { margin-bottom: 16px; }
+.form-label { display: block; font-size: 11px; font-weight: 700; color: #888; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px; }
+.form-input, .form-select { width: 100%; padding: 9px 12px; border: 1.5px solid #e0e0e0; border-radius: 7px; font-size: 13px; outline: none; transition: border-color 0.15s; background: white; }
+.form-input:focus, .form-select:focus { border-color: #e05a00; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 22px; padding-top: 16px; border-top: 1px solid #f0f0f0; }
+
+/* TEMPLATE PREVIEW */
+.tmpl-preview { background: #f9f9f7; border-radius: 7px; padding: 10px 12px; font-size: 12px; color: #666; max-height: 160px; overflow-y: auto; }
+.tmpl-row { padding: 4px 0; border-bottom: 1px solid #eeede9; display: flex; gap: 10px; }
+.tmpl-row:last-child { border-bottom: none; }
+.tmpl-name { flex: 1; }
+.tmpl-assignee { color: #888; }
+.tmpl-due { color: #aaa; min-width: 80px; text-align: right; }
+
+/* EMPTY */
+.empty { text-align: center; padding: 52px 24px; color: #ccc; }
+.empty-icon { font-size: 40px; margin-bottom: 10px; }
+.empty-text { font-size: 14px; }
+
+/* COLOR: assignee */
+.a-栗原 { background: #dbeafe; color: #1e40af; }
+.a-栫井 { background: #dcfce7; color: #166534; }
+.a-田邉 { background: #ffedd5; color: #9a3412; }
+.a-藤原 { background: #f3e8ff; color: #6b21a8; }
+.a-匂坂 { background: #fef9c3; color: #713f12; }
+.a-髙松 { background: #fce7f3; color: #831843; }
+.a-岡   { background: #cffafe; color: #155e75; }
+.a-山下 { background: #d1fae5; color: #065f46; }
+.a-伊熊 { background: #ede9fe; color: #4c1d95; }
+.a-その他 { background: #f3f4f6; color: #374151; }
+
+/* TASK COLOR DOTS */
+.task-color-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; display: inline-block; margin-right: 1px; }
+.tc-印刷物 { background: #f97316; }
+.tc-Web { background: #3b82f6; }
+.tc-HP { background: #3b82f6; }
+.tc-広告 { background: #ef4444; }
+.tc-SNS { background: #a855f7; }
+.tc-その他 { background: #9ca3af; }
+
+/* PROJECT SWITCHER */
+.proj-toggle { display: flex; gap: 4px; margin-left: 14px; }
+.proj-btn { padding: 3px 13px; border-radius: 12px; border: 1.5px solid rgba(255,255,255,0.4); background: transparent; color: rgba(255,255,255,0.8); cursor: pointer; font-size: 12px; font-weight: 700; transition: all 0.15s; }
+.proj-btn.active { background: white; color: #e05a00; border-color: white; }
+.proj-btn:hover:not(.active) { background: rgba(255,255,255,0.2); }
+
+/* ASSIGNEE CHECKBOXES */
+.assignee-cb-group { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 0; }
+.assignee-cb-label { display: flex; align-items: center; gap: 4px; padding: 5px 11px; border-radius: 14px; border: 1.5px solid #e0e0e0; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.15s; user-select: none; }
+.assignee-cb-label input { display: none; }
+.assignee-cb-label.checked { border-color: #e05a00; background: #fff3ec; color: #c44e00; }
+
+/* COLOR: type */
+.t-完成見学会 { background: #fef3c7; color: #92400e; }
+.t-グランドオープン { background: #d1fae5; color: #065f46; }
+.t-常設 { background: #cffafe; color: #155e75; }
+.t-単発 { background: #fee2e2; color: #991b1b; }
+.t-1ヶ月イベント { background: #ede9fe; color: #4c1d95; }
+.t-2ヶ月イベント { background: #dbeafe; color: #1e3a8a; }
+.t-パークイベント { background: #fce7f3; color: #831843; }
+.t-キャンペーン { background: #ecfdf5; color: #14532d; }
+.t-その他 { background: #f3f4f6; color: #374151; }
+.type-badge:not([class*=" t-"]):not([class$=" t-"]) { background: #f3f4f6; color: #374151; }
+
+.hidden { display: none !important; }
+
+/* TEMPLATE VIEW */
+.tmpl-type-card { background: white; border-radius: 10px; border: 1px solid #e5e5e0; margin-bottom: 14px; overflow: hidden; }
+.tmpl-type-header { padding: 14px 18px; display: flex; align-items: center; gap: 10px; cursor: pointer; background: #fafaf8; user-select: none; }
+.tmpl-type-name { font-weight: 700; font-size: 14px; flex: 1; }
+.tmpl-type-count { font-size: 12px; color: #aaa; }
+.tmpl-edit-row { display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-bottom: 1px solid #f5f5f3; }
+.tmpl-edit-row:last-of-type { border-bottom: none; }
+.tmpl-timing-badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #e0e7ff; color: #4338ca; white-space: nowrap; flex-shrink: 0; }
+
+/* TYPE COLOR PICKER */
+.type-color-picker { position: absolute; z-index: 200; background: white; border: 1px solid #e0e0e0; border-radius: 12px; padding: 10px 12px; display: flex; flex-wrap: wrap; gap: 7px; box-shadow: 0 4px 18px rgba(0,0,0,0.14); min-width: 180px; }
+.type-color-swatch { width: 26px; height: 26px; border-radius: 50%; cursor: pointer; border: 2.5px solid transparent; transition: transform 0.1s; }
+.type-color-swatch:hover { transform: scale(1.18); border-color: #555; }
+.type-color-swatch.selected { border-color: #222; }
+.type-color-clear { font-size: 11px; width: 100%; text-align: center; color: #888; cursor: pointer; padding: 2px 0; }
+.type-color-clear:hover { color: #e05a00; }
+
+/* EVENT INFO PANEL */
+.ev-info-panel { padding: 10px 16px; background: #f8f8f6; border-bottom: 1px solid #eee; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; align-items: baseline; }
+.ev-info-label { font-size: 11px; font-weight: 700; color: #aaa; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
+.ev-info-value { font-size: 12px; color: #444; word-break: break-word; }
+
+/* STICKY EVENT TOOLBAR */
+.events-toolbar { position: sticky; top: 54px; z-index: 90; background: #f4f4f0; padding: 10px 0 12px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; border-bottom: 1px solid #e8e8e4; }
+.toolbar-check-label { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: #555; cursor: pointer; padding: 6px 12px; border: 1.5px solid #ddd; border-radius: 7px; background: white; transition: all 0.15s; user-select: none; }
+.toolbar-check-label:hover { border-color: #e05a00; color: #e05a00; }
+.toolbar-check-label input[type="checkbox"] { accent-color: #e05a00; width: 14px; height: 14px; cursor: pointer; }
+
+/* SYNC */
+.sync-indicator { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.sync-dot { width: 8px; height: 8px; border-radius: 50%; background: #aaa; flex-shrink: 0; }
+.sync-dot.ok  { background: #4caf50; }
+.sync-dot.ing { background: #ff9800; animation: pulse 1s infinite; }
+.sync-dot.err { background: #ef5350; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+.sync-text { font-size: 11px; color: rgba(255,255,255,0.7); }
+.gas-settings-btn { background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 4px 10px; border-radius: 5px; cursor: pointer; font-size: 11px; margin-left: 8px; }
+.gas-settings-btn:hover { background: rgba(255,255,255,0.25); }
+</style>
+<!-- Firebase compat SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+</head>
+<body>
+
+<!-- NAV -->
+<div class="nav">
+  <div class="nav-title">🏠 PG イベント管理</div>
+  <div class="nav-tabs">
+    <div class="nav-tab active" data-view="events" onclick="switchView('events',this)">イベント一覧</div>
+    <div class="nav-tab" data-view="assignee" onclick="switchView('assignee',this)">担当者別</div>
+    <div class="nav-tab" data-view="personal" onclick="switchView('personal',this)">個人別</div>
+    <div class="nav-tab" data-view="routine" onclick="switchView('routine',this)">ルーティン</div>
+    <div class="nav-tab" data-view="template" onclick="switchView('template',this)">テンプレート</div>
+  </div>
+  <div class="proj-toggle">
+    <button class="proj-btn active" id="proj-pg" onclick="switchProject('pg')">PG</button>
+    <button class="proj-btn" id="proj-souzoku" onclick="switchProject('souzoku')">相続</button>
+    <button class="proj-btn" id="proj-arrch" onclick="switchProject('arrch')">ARRCH</button>
+  </div>
+  <button id="arrch-import-btn" onclick="arrchBulkImport()" style="margin-left:10px;padding:3px 10px;background:#fff3cd;border:1.5px solid #e0a800;border-radius:10px;font-size:11px;font-weight:700;color:#856404;cursor:pointer">📥 ARRCHインポート</button>
+  <button id="souzoku-import-btn" onclick="souzokuBulkImport()" style="margin-left:6px;padding:3px 10px;background:#e8f4fd;border:1.5px solid #3498db;border-radius:10px;font-size:11px;font-weight:700;color:#1a5276;cursor:pointer">📥 相続インポート</button>
+  <div class="sync-indicator">
+    <span class="sync-text" id="sync-text">接続中...</span>
+    <span class="sync-dot ing" id="sync-dot"></span>
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- ① EVENTS VIEW -->
+  <div id="view-events">
+    <div class="events-toolbar">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <label class="toolbar-check-label">
+          <input type="checkbox" id="chk-show-details" onchange="toggleAllDetails(this.checked)">
+          詳細
+        </label>
+        <label class="toolbar-check-label">
+          <input type="checkbox" id="chk-show-tasks" onchange="toggleAllTasks(this.checked)">
+          タスク
+        </label>
+        <button class="btn btn-secondary btn-sm" id="btn-sort-date" onclick="resetToDateOrder()" style="display:none">📅 日付順に戻す</button>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <div class="search-wrap">
+          <span class="search-icon">🔍</span>
+          <input type="text" class="search-input" id="search-events" placeholder="イベント名で検索" oninput="renderEventsView()">
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="showAddTaskModal(null)">＋ イベントなしタスク</button>
+        <button class="btn btn-primary btn-sm" onclick="showAddEventModal()">＋ イベント追加</button>
+      </div>
+    </div>
+    <div style="font-size:13px;font-weight:700;color:#222;margin-bottom:12px">イベント一覧</div>
+    <div id="events-container"></div>
+    <div id="no-event-section"></div>
+  </div>
+
+  <!-- ② ASSIGNEE VIEW -->
+  <div id="view-assignee" class="hidden">
+    <div class="assignee-sticky-header">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <div class="section-title" style="margin:0">担当者別タスク</div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <div class="search-wrap">
+            <span class="search-icon">🔍</span>
+            <input type="text" class="search-input" id="search-assignee" placeholder="タスク名で検索" oninput="renderAssigneeView()">
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="startInlineAdd(null, assigneeFilter.size===1?[...assigneeFilter][0]:'')">＋ タスク追加</button>
+        </div>
+      </div>
+      <div class="filter-row" id="assignee-filter-row"></div>
+      <div class="toggle-done-wrap">
+        <input type="checkbox" id="chk-hide-done" checked onchange="renderAssigneeView()">
+        <label for="chk-hide-done">未完了のみ表示</label>
+      </div>
+    </div>
+    <div id="assignee-container"></div>
+  </div>
+
+  <!-- ③ PERSONAL VIEW -->
+  <div id="view-personal" class="hidden">
+    <div class="assignee-sticky-header">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <div class="section-title" style="margin:0">個人別タスク</div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <div class="search-wrap">
+            <span class="search-icon">🔍</span>
+            <input type="text" class="search-input" id="search-personal" placeholder="タスク名で検索" oninput="renderPersonalView()">
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#888;cursor:pointer;">
+            <input type="checkbox" id="chk-personal-hide-done" checked onchange="renderPersonalView()" style="accent-color:#e05a00">
+            未完了のみ表示
+          </label>
+        </div>
+      </div>
+      <div class="filter-row" id="personal-filter-row"></div>
+    </div>
+    <div id="personal-container"></div>
+  </div>
+
+  <!-- ④ ROUTINE VIEW -->
+  <div id="view-routine" class="hidden">
+    <div class="section-header">
+      <div class="section-title">月次ルーティンタスク</div>
+      <button class="btn btn-primary" onclick="showAddRoutineModal()">＋ ルーティン追加</button>
+    </div>
+    <div id="routine-container"></div>
+  </div>
+
+  <!-- ⑤ TEMPLATE VIEW -->
+  <div id="view-template" class="hidden">
+    <div class="section-header">
+      <div class="section-title">タスクテンプレート管理</div>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span style="font-size:12px;color:#aaa">イベント追加時に自動生成されるタスクを編集できます</span>
+        <button class="btn btn-secondary btn-sm" onclick="addEventType()">＋ 種別を追加</button>
+      </div>
+    </div>
+    <div id="template-container"></div>
+  </div>
+
+</div>
+
+<!-- MODAL: イベント追加 -->
+<div class="overlay hidden" id="modal-add-event" onclick="overlayClose(event,'modal-add-event')">
+  <div class="modal">
+    <div class="modal-title">イベント追加</div>
+    <div class="form-group">
+      <label class="form-label">イベント名 *</label>
+      <input class="form-input" id="ev-name" placeholder="例：貴布祢 平屋モデルハウスグランドオープン">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">イベント種別 *</label>
+        <select class="form-select" id="ev-type" onchange="onEvTypeChange()">
+          <option value="">選択してください</option>
+          <option>完成見学会</option>
+          <option>グランドオープン</option>
+          <option>常設</option>
+          <option>単発</option>
+          <option>1ヶ月イベント</option>
+          <option>2ヶ月イベント</option>
+          <option>パークイベント</option>
+          <option>キャンペーン</option>
+          <option>その他</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">開催日 *</label>
+        <input class="form-input" type="date" id="ev-date" oninput="onEvTypeChange()">
+      </div>
+    </div>
+    <div class="form-group hidden" id="tmpl-preview-wrap">
+      <label class="form-label">自動追加されるタスク</label>
+      <div class="tmpl-preview" id="tmpl-preview-list"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('modal-add-event')">キャンセル</button>
+      <button class="btn btn-primary" onclick="doAddEvent()">追加してタスク生成</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: タスク追加 -->
+<div class="overlay hidden" id="modal-add-task" onclick="overlayClose(event,'modal-add-task')">
+  <div class="modal">
+    <div class="modal-title" id="add-task-title">タスク追加</div>
+    <input type="hidden" id="t-event-id">
+    <div class="form-group hidden" id="t-event-select-group">
+      <label class="form-label">イベントに紐づける（任意）</label>
+      <select class="form-select" id="t-event-select" onchange="onTaskEventSelectChange()">
+        <option value="">イベントなし</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">タスク名 *</label>
+      <input class="form-input" id="t-name" placeholder="タスク名を入力">
+    </div>
+    <div class="form-group">
+      <label class="form-label">担当者（複数選択可）</label>
+      <div class="assignee-cb-group" id="t-assignees-group"></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">期日</label>
+      <input class="form-input" type="date" id="t-due">
+    </div>
+    <div id="t-noevent-fields" class="hidden">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">制作月</label>
+          <input class="form-input" type="month" id="t-prod-month">
+        </div>
+        <div class="form-group">
+          <label class="form-label">属性</label>
+          <select class="form-select" id="t-attr">
+            <option value="">未設定</option>
+            <option>SNS</option><option>Web広告</option><option>チラシ</option>
+            <option>HP</option><option>DM</option><option>その他</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">メモ</label>
+      <input class="form-input" id="t-note" placeholder="メモ（任意）">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('modal-add-task')">キャンセル</button>
+      <button class="btn btn-primary" onclick="doAddTask()">追加</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: タスク編集 -->
+<div class="overlay hidden" id="modal-edit-task" onclick="overlayClose(event,'modal-edit-task')">
+  <div class="modal">
+    <div class="modal-title">タスク編集</div>
+    <input type="hidden" id="et-id">
+    <div class="form-group">
+      <label class="form-label">タスク名 *</label>
+      <input class="form-input" id="et-name">
+    </div>
+    <div class="form-group">
+      <label class="form-label">担当者（複数選択可）</label>
+      <div class="assignee-cb-group" id="et-assignees-group"></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">期日</label>
+      <input class="form-input" type="date" id="et-due">
+    </div>
+    <div class="form-group">
+      <label class="form-label">イベントに紐づける</label>
+      <select class="form-select" id="et-event-link" onchange="document.getElementById('et-noevent-fields').classList.toggle('hidden', !!this.value)">
+        <option value="">紐づけない（個人タスク）</option>
+      </select>
+    </div>
+    <div id="et-noevent-fields" class="hidden">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">制作月</label>
+          <input class="form-input" type="month" id="et-prod-month">
+        </div>
+        <div class="form-group">
+          <label class="form-label">属性</label>
+          <select class="form-select" id="et-attr">
+            <option value="">未設定</option>
+            <option>SNS</option><option>Web広告</option><option>チラシ</option>
+            <option>HP</option><option>DM</option><option>その他</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">メモ</label>
+      <input class="form-input" id="et-note">
+    </div>
+    <div style="margin:12px 0;padding:12px;background:#fff8f4;border:1.5px solid #fdd;border-radius:8px;">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600;color:#555;">
+        <input type="checkbox" id="et-is-routine" onchange="toggleRoutineFields()" style="accent-color:#e05a00;width:15px;height:15px;">
+        毎月繰り返す（ルーティン登録）
+      </label>
+      <div id="et-routine-fields" class="hidden" style="margin-top:10px;">
+        <div style="display:flex;align-items:center;gap:8px;font-size:13px;">
+          <label style="color:#666;">毎月</label>
+          <input type="number" id="et-routine-day" class="form-input" min="1" max="31" style="width:70px;" placeholder="20">
+          <label style="color:#666;">日が期日</label>
+        </div>
+        <div style="font-size:11px;color:#aaa;margin-top:4px;">登録すると毎月自動でタスクが追加されます</div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('modal-edit-task')">キャンセル</button>
+      <button class="btn btn-primary" onclick="doSaveTask()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: イベント編集 -->
+<div class="overlay hidden" id="modal-edit-event" onclick="overlayClose(event,'modal-edit-event')">
+  <div class="modal">
+    <div class="modal-title">イベント編集</div>
+    <input type="hidden" id="ee-id">
+    <div class="form-group">
+      <label class="form-label">イベント名 *</label>
+      <input class="form-input" id="ee-name">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">イベント種別</label>
+        <select class="form-select" id="ee-type">
+          <option>完成見学会</option><option>グランドオープン</option><option>常設</option>
+          <option>単発</option><option>1ヶ月イベント</option><option>2ヶ月イベント</option>
+          <option>パークイベント</option><option>キャンペーン</option><option>その他</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">開催日</label>
+        <input class="form-input" type="date" id="ee-date">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">HPタイトル</label>
+      <input class="form-input" id="ee-title" placeholder="例：浜松市北区○○町　完成見学会">
+    </div>
+    <div class="form-group">
+      <label class="form-label">ドキュメントリンク</label>
+      <input class="form-input" id="ee-docurl" placeholder="https://...">
+    </div>
+    <div class="form-group">
+      <label class="form-label">備考</label>
+      <textarea class="form-input" id="ee-note" rows="2" placeholder="自由記述"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-danger btn-sm" onclick="doDeleteEvent()" style="margin-right:auto">イベント削除</button>
+      <button class="btn btn-secondary" onclick="closeModal('modal-edit-event')">キャンセル</button>
+      <button class="btn btn-primary" onclick="doSaveEvent()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: ルーティン追加 -->
+<div class="overlay hidden" id="modal-add-routine" onclick="overlayClose(event,'modal-add-routine')">
+  <div class="modal">
+    <div class="modal-title">ルーティンタスク追加</div>
+    <div class="form-group">
+      <label class="form-label">タスク名 *</label>
+      <input class="form-input" id="r-name" placeholder="例：A4おまとめチラシ">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">担当者</label>
+        <select class="form-select" id="r-assignee"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">毎月の期日（日）</label>
+        <input class="form-input" type="number" id="r-day" min="1" max="28" value="20">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('modal-add-routine')">キャンセル</button>
+      <button class="btn btn-primary" onclick="doAddRoutine()">追加</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: テンプレートタスク追加/編集 -->
+<div class="overlay hidden" id="modal-tmpl-task" onclick="overlayClose(event,'modal-tmpl-task')">
+  <div class="modal">
+    <div class="modal-title" id="tmpl-task-title">テンプレートタスク</div>
+    <input type="hidden" id="tt-type">
+    <input type="hidden" id="tt-idx">
+    <div class="form-group">
+      <label class="form-label">タスク名 *</label>
+      <input class="form-input" id="tt-name" placeholder="タスク名を入力">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">担当者</label>
+        <select class="form-select" id="tt-assignee"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">タイミング</label>
+        <select class="form-select" id="tt-timing" onchange="onTmplTimingChange()">
+          <option value="pm20">前月20日</option>
+          <option value="days">開催X日前</option>
+          <option value="manual">手入力（期日なし）</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group" id="tt-days-wrap" class="hidden">
+      <label class="form-label">開催の何日前？</label>
+      <input class="form-input" type="number" id="tt-days" min="1" max="180" value="21">
+    </div>
+    <div class="form-group">
+      <label class="form-label">カテゴリ色（任意）</label>
+      <select class="form-select" id="tt-color">
+        <option value="">なし</option>
+        <option value="印刷物">🟠 印刷物</option>
+        <option value="Web">🔵 Web/HP</option>
+        <option value="広告">🔴 広告</option>
+        <option value="SNS">🟣 SNS</option>
+        <option value="その他">⚪ その他</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('modal-tmpl-task')">キャンセル</button>
+      <button class="btn btn-primary" onclick="doSaveTemplateTask()">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ================================================================
+// TEMPLATES
+// ================================================================
+const TEMPLATES = {
+  '完成見学会': [
+    { name: 'ヒアリング',       assignee: '栫井', daysBeforeEvent: 35 },
+    { name: '間取り依頼',       assignee: '栫井', daysBeforeEvent: 35 },
+    { name: '間取り修正',       assignee: '田邉', daysBeforeEvent: 28 },
+    { name: 'イベントページ作成', assignee: '田邉', daysBeforeEvent: 21 },
+    { name: 'トップ画像作成',   assignee: '田邉', daysBeforeEvent: 21 },
+    { name: '広告作成',         assignee: '田邉', daysBeforeEvent: 21 },
+    { name: 'A4チラシ作成',     assignee: '田邉', daysBeforeEvent: 21 },
+    { name: 'Googleマップ',     assignee: '栫井', daysBeforeEvent: 21 },
+    { name: 'イエタテ',         assignee: '栫井', daysBeforeEvent: 21 },
+    { name: 'スライダー入稿',   assignee: '田邉', daysBeforeEvent: 21 },
+  ],
+  '施工事例': [
+    { name: 'ヒアリング',           assignee: '栫井', dateType: 'manual' },
+    { name: '間取り依頼',           assignee: '栫井', dateType: 'manual' },
+    { name: '間取り制作',           assignee: '田邉', dateType: 'manual' },
+    { name: 'スプシデータ入力',     assignee: '栫井', dateType: 'manual' },
+    { name: '画像加工',             assignee: '栫井', dateType: 'manual' },
+    { name: 'イベントページ制作',   assignee: '田邉', dateType: 'manual' },
+    { name: 'スライダー入稿',       assignee: '田邉', dateType: 'manual' },
+    { name: 'イエタテ',             assignee: '栫井', dateType: 'manual' },
+  ],
+  'グランドオープン': [
+    { name: 'HP公開',            assignee: '田邉', dateType: 'pm20' },
+    { name: 'IG広告入稿',        assignee: '田邉', dateType: 'pm20' },
+    { name: 'A4チラシ',          assignee: '田邉', dateType: 'pm20' },
+    { name: 'イエタテ配信',      assignee: '栫井', dateType: 'pm20' },
+    { name: 'Googlemap配信',     assignee: '栫井', dateType: 'pm20' },
+    { name: 'スライダー入替',    assignee: '田邉', dateType: 'pm20' },
+    { name: 'LP制作',            assignee: '田邉', dateType: 'pm20' },
+    { name: 'DM制作',            assignee: '田邉', dateType: 'pm20' },
+    { name: 'ポスティングチラシ制作', assignee: '田邉', dateType: 'pm20' },
+    { name: 'その他制作物',      assignee: '',     dateType: 'manual' },
+  ],
+};
+// 7タスクテンプレートを使うイベント種別
+['常設','単発','1ヶ月イベント','2ヶ月イベント','パークイベント','キャンペーン','その他'].forEach(type => {
+  TEMPLATES[type] = [
+    { name: 'HP公開',        assignee: '田邉', dateType: 'pm20' },
+    { name: 'IG広告入稿',    assignee: '田邉', dateType: 'pm20' },
+    { name: 'A4チラシ',      assignee: '田邉', dateType: 'pm20' },
+    { name: 'イエタテ配信',  assignee: '栫井', dateType: 'pm20' },
+    { name: 'Googlemap配信', assignee: '栫井', dateType: 'pm20' },
+    { name: 'スライダー入替',assignee: '田邉', dateType: 'pm20' },
+    { name: 'その他制作物',  assignee: '',     dateType: 'manual' },
+  ];
+});
+
+// ================================================================
+// DATA
+// ================================================================
+let DB = {
+  events: [],
+  tasks: [],
+  routines: [
+    { id: 1, name: 'A4おまとめチラシ', assignee: '田邉', dueDayOfMonth: 20 }
+  ],
+  assignees: ['栗原', '栫井', '田邉', '藤原', '匂坂'],
+  eventTypes: ['完成見学会','グランドオープン','施工事例','常設','単発','1ヶ月イベント','2ヶ月イベント','パークイベント','キャンペーン','その他'],
+  souzokuEventTypes: ['セミナー','個別相談会','勉強会','その他'],
+  arrchEventTypes: ['完成見学会','引渡し会','展示会','その他'],
+  arrchAssignees: ['髙松','岡','山下','伊熊'],
+  arrchTemplates: {},
+  eventTypeColors: {},
+  nextEv: 1, nextTask: 2, nextRt: 2,
+};
+
+// ================================================================
+// FIREBASE SYNC
+// ================================================================
+const FB_CONFIG = {
+  apiKey: "AIzaSyD0b1NQh7VrUvGCtOf87CsU4IhlXQuhy-w",
+  authDomain: "pg-event-tasks.firebaseapp.com",
+  databaseURL: "https://pg-event-tasks-default-rtdb.firebaseio.com",
+  projectId: "pg-event-tasks",
+  storageBucket: "pg-event-tasks.firebasestorage.app",
+  messagingSenderId: "340530640774",
+  appId: "1:340530640774:web:8027c90e21854e81a09e07"
+};
+firebase.initializeApp(FB_CONFIG);
+const fbDb = firebase.database();
+const FB_REF = 'pg-tasks';
+
+// オフライン永続化（WebSocket切断時のデータ消失を防ぐ）
+try { fbDb.setPersistenceEnabled(true); } catch(e) {}
+
+let isSavingToFB = false;
+let _saveCount = 0;  // 同時保存数カウンター（競合防止）
+
+function setSyncStatus(state, text) {
+  const dot = document.getElementById('sync-dot');
+  const txt = document.getElementById('sync-text');
+  if (!dot) return;
+  dot.className = 'sync-dot ' + state;
+  txt.textContent = text;
+}
+
+function renderCurrent() {
+  if (currentView === 'events') renderEventsView();
+  else if (currentView === 'assignee') renderAssigneeView();
+  else if (currentView === 'personal') renderPersonalView();
+  else renderRoutineView();
+}
+
+function setSyncSaving() { _saveCount++; isSavingToFB = true; setSyncStatus('ing', '同期中...'); }
+function setSyncDone() {
+  _saveCount = Math.max(0, _saveCount - 1);
+  if (_saveCount === 0) {
+    setSyncStatus('ok', '同期済み');
+    // 全保存完了後2秒間はリスナーによる上書きをブロック
+    setTimeout(() => { if (_saveCount === 0) isSavingToFB = false; }, 2000);
+  }
+}
+
+function saveTaskFB(task) {
+  setSyncSaving();
+  fbDb.ref(FB_REF + '/tasks/' + task.id).set(task).then(setSyncDone).catch(() => setSyncStatus('err', '同期エラー'));
+}
+function deleteTaskFB(id) {
+  setSyncSaving();
+  fbDb.ref(FB_REF + '/tasks/' + id).remove().then(setSyncDone).catch(() => setSyncStatus('err', '同期エラー'));
+}
+function saveEventFB(ev) {
+  setSyncSaving();
+  fbDb.ref(FB_REF + '/events/' + ev.id).set(ev).then(setSyncDone).catch(() => setSyncStatus('err', '同期エラー'));
+}
+function deleteEventFB(id) {
+  setSyncSaving();
+  fbDb.ref(FB_REF + '/events/' + id).remove().then(setSyncDone).catch(() => setSyncStatus('err', '同期エラー'));
+}
+function saveRoutineFB(r) {
+  setSyncSaving();
+  fbDb.ref(FB_REF + '/routines/' + r.id).set(r).then(setSyncDone).catch(() => setSyncStatus('err', '同期エラー'));
+}
+function deleteRoutineFB(id) {
+  setSyncSaving();
+  fbDb.ref(FB_REF + '/routines/' + id).remove().then(setSyncDone).catch(() => setSyncStatus('err', '同期エラー'));
+}
+function saveMetaFB() {
+  setSyncSaving();
+  const meta = {
+    assignees: DB.assignees || [],
+    eventTypes: DB.eventTypes || [],
+    souzokuEventTypes: DB.souzokuEventTypes || [],
+    arrchEventTypes: DB.arrchEventTypes || [],
+    arrchAssignees: DB.arrchAssignees || [],
+    eventTypeColors: DB.eventTypeColors || {},
+    nextEv: DB.nextEv,
+    nextTask: DB.nextTask,
+    nextRt: DB.nextRt,
+    taskOrder: DB.taskOrder || null,
+    eventsManuallyOrdered: DB.eventsManuallyOrdered || false,
+    eventTasksSeeded: DB.eventTasksSeeded || false,
+  };
+  fbDb.ref(FB_REF + '/meta').update(meta).then(setSyncDone).catch(() => setSyncStatus('err', '同期エラー'));
+}
+// ---- 相続一括インポート ----
+async function souzokuBulkImport() {
+  if (!confirm('相続イベント⑧〜⑫（5件）とタスクをインポートします。よろしいですか？')) return;
+  const btn = document.getElementById('souzoku-import-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ インポート中...'; }
+
+  const data = [
+    {
+      ev: { name: '★社外講師＠浜北文化センター', type: 'セミナー', startDate: '2026-09-13' },
+      tasks: [
+        { name: 'イベントページ', dueDate: '', done: true },
+        { name: 'お知らせ',       dueDate: '', done: false },
+      ]
+    },
+    {
+      ev: { name: '社内講師＠あいホール', type: 'セミナー', startDate: '2026-10-25' },
+      tasks: [
+        { name: 'イベントページ', dueDate: '2026-09-14', done: false },
+        { name: 'お知らせ',       dueDate: '',           done: false },
+      ]
+    },
+    {
+      ev: { name: '★社外講師', type: 'セミナー', startDate: '2026-11-15' },
+      tasks: [
+        { name: 'イベントページ', dueDate: '2026-10-26', done: false },
+        { name: 'お知らせ',       dueDate: '',           done: false },
+      ]
+    },
+    {
+      ev: { name: '社内講師', type: 'セミナー', startDate: '2026-12-02' },
+      tasks: [
+        { name: 'イベントページ', dueDate: '2026-11-16', done: false },
+        { name: 'お知らせ',       dueDate: '',           done: false },
+      ]
+    },
+    {
+      ev: { name: '社内講師', type: 'セミナー', startDate: '2026-12-06' },
+      tasks: [
+        { name: 'イベントページ', dueDate: '2026-11-16', done: false },
+        { name: 'お知らせ',       dueDate: '',           done: false },
+      ]
+    },
+  ];
+
+  let evCount = 0, taskCount = 0;
+  for (const item of data) {
+    const evId = DB.nextEv++;
+    const newEv = { id: evId, name: item.ev.name, type: item.ev.type, startDate: item.ev.startDate, endDate: '', title: '', docUrl: '', note: '', project: 'souzoku' };
+    DB.events.push(newEv);
+    saveEventFB(newEv);
+    evCount++;
+    await new Promise(r => setTimeout(r, 80));
+
+    for (const t of item.tasks) {
+      const newTask = { id: DB.nextTask++, eventId: evId, name: t.name, assignee: '', assignees: [], dueDate: t.dueDate, done: t.done, note: '', isRoutine: false, project: 'souzoku' };
+      DB.tasks.push(newTask);
+      saveTaskFB(newTask);
+      taskCount++;
+      await new Promise(r => setTimeout(r, 60));
+    }
+  }
+
+  saveMetaFB();
+  save();
+
+  if (btn) { btn.textContent = `✅ 完了`; btn.style.background = '#d4edda'; btn.style.borderColor = '#28a745'; btn.style.color = '#155724'; }
+  alert(`✅ 相続イベント ${evCount}件・タスク ${taskCount}件 追加しました！\n相続タブに切り替えて確認してください。`);
+  switchProject('souzoku');
+  renderEventsView();
+}
+
+// ---- ARRCH一括インポート（使用後はボタンごと削除） ----
+async function arrchBulkImport() {
+  if (!confirm('ARRCHイベント（2026年7〜9月）を15件インポートします。よろしいですか？')) return;
+  const btn = document.getElementById('arrch-import-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ インポート中...'; }
+
+  const arrchEvents = [
+    // 7月
+    { name: '【7月限定】さわやか券＋スターバックス券 最大10,000円プレゼント', type: 'キャンペーン',  startDate: '2026-07-01', endDate: '2026-07-31' },
+    { name: '清水様邸@中央区小沢渡町（横移動だけで家事が片付く平屋）',         type: '長期見学会',  startDate: '2026-07-04', endDate: '2026-08-02' },
+    { name: '6-7月モデル4棟（プライベートな中庭でBBQができる家）',             type: 'モデルハウス', startDate: '2026-06-01', endDate: '2026-07-31' },
+    { name: '6-7月新志都呂モデル（最後の見学会）',                             type: 'モデルハウス', startDate: '2026-06-01', endDate: '2026-07-26' },
+    { name: '6-7月勉強会（資材高騰でも減額できる賢い予算＆間取り戦略）',       type: 'セミナー',    startDate: '2026-06-01', endDate: '2026-07-31' },
+    { name: '6-7月いい土地勉強会（はじめての土地探し勉強会）',                 type: 'セミナー',    startDate: '2026-06-01', endDate: '2026-07-31' },
+    // 8月
+    { name: '宮分様邸@浜名区内野',                                             type: '長期見学会',  startDate: '2026-08-01', endDate: '2026-09-27' },
+    { name: '8-9月モデル3棟（西ヶ崎・半田2棟）',                               type: 'モデルハウス', startDate: '2026-08-01', endDate: '2026-09-30' },
+    { name: '8-9月勉強会',                                                     type: 'セミナー',    startDate: '2026-08-01', endDate: '2026-09-30' },
+    { name: '8-9月いい土地',                                                   type: 'セミナー',    startDate: '2026-08-01', endDate: '2026-09-30' },
+    // 9月
+    { name: '森下様邸',                                                        type: '長期見学会',  startDate: '2026-09-05', endDate: '2026-11-23' },
+    { name: '水越様 完成見学会',                                                type: '完成見学会',  startDate: '2026-09-05', endDate: '2026-09-06' },
+    { name: '福原様邸 完成見学会',                                              type: '完成見学会',  startDate: '2026-09-12', endDate: '2026-09-13' },
+    { name: '藤田様邸',                                                        type: '長期見学会',  startDate: '2026-09-19', endDate: '2026-11-23' },
+    { name: '笠井新田 GRAND OPEN',                                             type: 'モデルハウス', startDate: '2026-09-26', endDate: '2026-09-30' },
+  ];
+
+  // イベント種別に新種別を追加
+  const newTypes = ['長期見学会', 'モデルハウス', 'セミナー', 'キャンペーン'];
+  if (!DB.arrchEventTypes) DB.arrchEventTypes = ['完成見学会','引渡し会','展示会','その他'];
+  newTypes.forEach(t => { if (!DB.arrchEventTypes.includes(t)) DB.arrchEventTypes.push(t); });
+
+  let count = 0;
+  for (const ev of arrchEvents) {
+    const evId = DB.nextEv++;
+    const newEv = { id: evId, name: ev.name, type: ev.type, startDate: ev.startDate, endDate: ev.endDate || '', title: '', docUrl: '', note: '', project: 'arrch' };
+    DB.events.push(newEv);
+    saveEventFB(newEv);
+    count++;
+    await new Promise(r => setTimeout(r, 100));
+  }
+
+  saveMetaFB();
+  save();
+
+  if (btn) { btn.textContent = `✅ ${count}件完了`; btn.style.background = '#d4edda'; btn.style.borderColor = '#28a745'; btn.style.color = '#155724'; }
+  alert(`✅ ARRCHイベント ${count}件 追加しました！\nARRCHタブに切り替えて確認してください。`);
+  switchProject('arrch');
+  renderEventsView();
+}
+
+function saveEventTypeColorsFB() {
+  setSyncSaving();
+  fbDb.ref(FB_REF + '/meta/eventTypeColors').set(DB.eventTypeColors || {}).then(setSyncDone).catch(() => setSyncStatus('err', '同期エラー'));
+}
+
+// 種別バッジHTML（DB色があればインラインスタイル、なければCSSクラス）
+function typeBadgeHTML(type) {
+  const colors = DB.eventTypeColors || {};
+  if (colors[type]) {
+    return `<span class="type-badge" style="background:${colors[type].bg};color:${colors[type].text}">${type}</span>`;
+  }
+  return `<span class="type-badge t-${type}">${type}</span>`;
+}
+
+// 色パレット定義
+const TYPE_COLOR_PALETTE = [
+  { bg: '#fef3c7', text: '#92400e' }, // 黄
+  { bg: '#d1fae5', text: '#065f46' }, // 緑
+  { bg: '#dbeafe', text: '#1e3a8a' }, // 青
+  { bg: '#cffafe', text: '#155e75' }, // 青緑
+  { bg: '#ede9fe', text: '#4c1d95' }, // 紫
+  { bg: '#fce7f3', text: '#831843' }, // ピンク
+  { bg: '#fee2e2', text: '#991b1b' }, // 赤
+  { bg: '#ffedd5', text: '#9a3412' }, // オレンジ
+  { bg: '#ecfdf5', text: '#14532d' }, // 薄緑
+  { bg: '#e0e7ff', text: '#3730a3' }, // インジゴ
+  { bg: '#f3f4f6', text: '#374151' }, // グレー
+];
+
+let _colorPickerCleanup = null;
+
+function showTypeColorPicker(type, btn) {
+  // 既存ピッカーを閉じる
+  if (_colorPickerCleanup) { _colorPickerCleanup(); _colorPickerCleanup = null; }
+
+  const current = (DB.eventTypeColors || {})[type];
+  const swatches = TYPE_COLOR_PALETTE.map((c, i) => {
+    const isSel = current && current.bg === c.bg;
+    return `<div class="type-color-swatch${isSel?' selected':''}" style="background:${c.bg};border-color:${isSel?'#222':'transparent'}"
+      onclick="applyTypeColor('${type}',${i})"></div>`;
+  }).join('');
+
+  const picker = document.createElement('div');
+  picker.className = 'type-color-picker';
+  picker.innerHTML = swatches + `<div class="type-color-clear" onclick="clearTypeColor('${type}')">× 色をリセット</div>`;
+
+  // ボタンの近くに配置
+  const rect = btn.getBoundingClientRect();
+  picker.style.position = 'fixed';
+  picker.style.top = (rect.bottom + 6) + 'px';
+  picker.style.left = Math.max(8, rect.left - 80) + 'px';
+  document.body.appendChild(picker);
+
+  const close = (e) => {
+    if (!picker.contains(e.target) && e.target !== btn) {
+      picker.remove();
+      document.removeEventListener('mousedown', close);
+      _colorPickerCleanup = null;
+    }
+  };
+  setTimeout(() => document.addEventListener('mousedown', close), 0);
+  _colorPickerCleanup = () => { picker.remove(); document.removeEventListener('mousedown', close); };
+}
+
+function applyTypeColor(type, paletteIdx) {
+  if (_colorPickerCleanup) { _colorPickerCleanup(); _colorPickerCleanup = null; }
+  if (!DB.eventTypeColors) DB.eventTypeColors = {};
+  DB.eventTypeColors[type] = TYPE_COLOR_PALETTE[paletteIdx];
+  save(); saveEventTypeColorsFB();
+  renderTemplatesView();
+  renderCurrent();
+}
+
+function clearTypeColor(type) {
+  if (_colorPickerCleanup) { _colorPickerCleanup(); _colorPickerCleanup = null; }
+  if (DB.eventTypeColors) delete DB.eventTypeColors[type];
+  save(); saveEventTypeColorsFB();
+  renderTemplatesView();
+  renderCurrent();
+}
+
+function saveTemplatesFB() {
+  setSyncSaving();
+  fbDb.ref(FB_REF + '/templates').set(DB.templates || null).then(setSyncDone).catch(() => setSyncStatus('err', '同期エラー'));
+}
+
+// カウンター・フラグのみ保存（eventTypes/assigneesは上書きしない）
+function saveCountersFB() {
+  setSyncSaving();
+  fbDb.ref(FB_REF + '/meta').update({
+    nextEv: DB.nextEv,
+    nextTask: DB.nextTask,
+    nextRt: DB.nextRt,
+    eventsManuallyOrdered: DB.eventsManuallyOrdered || false,
+    eventTasksSeeded: DB.eventTasksSeeded || false,
+  }).then(setSyncDone).catch(() => setSyncStatus('err', '同期エラー'));
+}
+
+function fbDataToDB(raw) {
+  const toArr = (v) => {
+    if (!v) return [];
+    if (Array.isArray(v)) return v.filter(Boolean); // 旧フォーマット互換（nullエントリ除去）
+    return Object.values(v).filter(Boolean);
+  };
+  const meta = raw.meta || {};
+  return {
+    events:   toArr(raw.events),
+    tasks:    toArr(raw.tasks),
+    routines: toArr(raw.routines),
+    assignees:            meta.assignees            || raw.assignees            || DB.assignees,
+    eventTypes:           meta.eventTypes           || raw.eventTypes           || DB.eventTypes,
+    nextEv:               meta.nextEv               || raw.nextEv               || DB.nextEv,
+    nextTask:             meta.nextTask             || raw.nextTask             || DB.nextTask,
+    nextRt:               meta.nextRt               || raw.nextRt               || DB.nextRt,
+    taskOrder:            meta.taskOrder            || raw.taskOrder            || DB.taskOrder,
+    eventsManuallyOrdered: meta.eventsManuallyOrdered != null ? meta.eventsManuallyOrdered : (raw.eventsManuallyOrdered || false),
+    eventTasksSeeded:     meta.eventTasksSeeded     != null ? meta.eventTasksSeeded     : (raw.eventTasksSeeded     || false),
+    templates:            raw.templates             || DB.templates,
+    souzokuTemplates:     raw.souzokuTemplates      || DB.souzokuTemplates,
+    souzokuEventTypes:    meta.souzokuEventTypes    || raw.souzokuEventTypes || DB.souzokuEventTypes,
+    arrchEventTypes:      meta.arrchEventTypes      || raw.arrchEventTypes  || DB.arrchEventTypes,
+    arrchAssignees:       meta.arrchAssignees       || raw.arrchAssignees   || DB.arrchAssignees,
+    arrchTemplates:       raw.arrchTemplates        || DB.arrchTemplates    || {},
+    eventTypeColors:      meta.eventTypeColors      || raw.eventTypeColors  || DB.eventTypeColors || {},
+  };
+}
+
+// ローカルで最近変更したタスクIDを記録（リスナーによる上書き防止）
+const _localTaskSnapshot = new Map(); // id → taskオブジェクト
+
+function saveTaskFB_withSnapshot(task) {
+  _localTaskSnapshot.set(task.id, JSON.parse(JSON.stringify(task)));
+  setTimeout(() => _localTaskSnapshot.delete(task.id), 8000); // 8秒後にクリア
+  saveTaskFB(task);
+}
+
+// リアルタイムリスナー（他のユーザーの変更を即時反映）
+fbDb.ref(FB_REF).on('value', (snapshot) => {
+  if (isSavingToFB) return;
+  const raw = snapshot.val();
+  if (!raw) return;
+  const newDB = fbDataToDB(raw);
+  if (!newDB.events || newDB.events.length === 0) return;
+  fbInitialized = true; // Firebase初期ロード完了
+  // ローカルで最近変更したタスクはFirebase側の古いデータで上書きしない
+  if (_localTaskSnapshot.size > 0) {
+    newDB.tasks = newDB.tasks.map(t =>
+      _localTaskSnapshot.has(t.id) ? _localTaskSnapshot.get(t.id) : t
+    );
+  }
+  DB = { ...DB, ...newDB };
+  const migrated = migrateDB();
+  localStorage.setItem('pg-ev-db', JSON.stringify(DB));
+  renderCurrent();
+  renderAssigneeFilters();
+  renderPersonalFilters();
+  setSyncStatus('ok', '同期済み');
+  if (migrated) {
+    saveMetaFB();
+    (migrateDB._personalTasks || []).forEach(t => saveTaskFB(t));
+    migrateDB._personalTasks = [];
+  }
+}, () => setSyncStatus('err', '接続エラー'));
+
+// ================================================================
+// STORAGE
+// ================================================================
+function save() {
+  localStorage.setItem('pg-ev-db', JSON.stringify(DB));
+}
+function migrateDB() {
+  // 担当者名の誤字を修正（田遠→田邉）
+  let migrated = false;
+  DB.tasks.forEach(t => { if (t.assignee === '田遠') { t.assignee = '田邉'; migrated = true; } });
+  DB.routines.forEach(r => { if (r.assignee === '田遠') { r.assignee = '田邉'; migrated = true; } });
+  if (DB.assignees) DB.assignees = DB.assignees.map(a => a === '田遠' ? '田邉' : a);
+  if (!DB.assignees || DB.assignees.length === 0) DB.assignees = ['栗原', '栫井', '田邉', '藤原', '匂坂'];
+  // 匂坂が未追加なら追加
+  if (DB.assignees && !DB.assignees.includes('匂坂')) { DB.assignees.push('匂坂'); migrated = true; }
+  if (!DB.eventTypes || DB.eventTypes.length === 0) {
+    DB.eventTypes = ['完成見学会','グランドオープン','施工事例','常設','単発','1ヶ月イベント','2ヶ月イベント','パークイベント','キャンペーン','その他'];
+    migrated = true;
+  }
+  // eventTypesに「施工事例」がなければ追加
+  if (DB.eventTypes && !DB.eventTypes.includes('施工事例')) {
+    DB.eventTypes.splice(2, 0, '施工事例');
+    migrated = true;
+  }
+  // DB.templatesにTEMPLATESのキーが欠けていれば補完
+  if (DB.templates) {
+    Object.keys(TEMPLATES).forEach(key => {
+      if (!DB.templates[key]) {
+        DB.templates[key] = JSON.parse(JSON.stringify(TEMPLATES[key]));
+        migrated = true;
+      }
+    });
+  }
+  // イベント未紐づけ・ルーティーンでない既存タスクをisPersonal化
+  const personalMigrated = [];
+  DB.tasks.forEach(t => {
+    if (!t.eventId && !t.isRoutine && t.isPersonal === undefined) {
+      t.isPersonal = true;
+      personalMigrated.push(t);
+      migrated = true;
+    }
+  });
+  if (personalMigrated.length > 0) migrateDB._personalTasks = personalMigrated;
+  return migrated;
+}
+
+function getEventTypes() {
+  return DB.eventTypes || ['完成見学会','グランドオープン','常設','単発','1ヶ月イベント','2ヶ月イベント','パークイベント','キャンペーン','その他'];
+}
+
+function fillEventTypeSelect(id, selected) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const types = (id === 'ev-type' || id === 'ee-type') ? getProjectEventTypes() : getEventTypes();
+  el.innerHTML = (id === 'ev-type' ? '<option value="">選択してください</option>' : '') +
+    types.map(t => `<option${t === selected ? ' selected' : ''}>${t}</option>`).join('');
+}
+function load() {
+  const s = localStorage.getItem('pg-ev-db');
+  if (s) try { DB = { ...DB, ...JSON.parse(s) }; } catch(e){}
+  const migrated = migrateDB();
+  if (migrated) {
+    save();
+    // Firebase初期化後に保存するため少し遅延
+    // fbInitializedを確認してからsaveMetaFB（Firebase未ロード時はeventTypesを上書きしない）
+    setTimeout(() => {
+      (migrateDB._personalTasks || []).forEach(t => saveTaskFB(t));
+      migrateDB._personalTasks = [];
+      if (migrated) {
+        if (fbInitialized) saveMetaFB();
+        else saveCountersFB(); // eventTypes/assigneesは上書きしない
+      }
+    }, 2000);
+  }
+}
+
+// ================================================================
+// DATE UTILS
+// ================================================================
+function fmtDate(d) {
+  return `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`;
+}
+function p2(n) { return String(n).padStart(2,'0'); }
+function toDate(s) { return s ? new Date(s + 'T00:00:00') : null; }
+function fmtJP(s) {
+  if (!s) return '—';
+  const d = toDate(s);
+  return `${d.getMonth()+1}月${d.getDate()}日`;
+}
+function fmtJPFull(s) {
+  if (!s) return '—';
+  const d = toDate(s);
+  return `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日`;
+}
+function monthLabel(s) {
+  if (!s) return '日付未設定';
+  const d = toDate(s);
+  return `${d.getFullYear()}年${d.getMonth()+1}月`;
+}
+function isOverdue(s) {
+  if (!s) return false;
+  const t = new Date(); t.setHours(0,0,0,0);
+  return toDate(s) < t;
+}
+function calcPM20(eventDate) {
+  const d = toDate(eventDate);
+  const pm = new Date(d.getFullYear(), d.getMonth() - 1, 20);
+  const dow = pm.getDay();
+  if (dow === 6) pm.setDate(19);
+  else if (dow === 0) pm.setDate(18);
+  return fmtDate(pm);
+}
+function addDays(s, n) {
+  const d = toDate(s); d.setDate(d.getDate() + n); return fmtDate(d);
+}
+function calcDue(tmpl, eventDate) {
+  if (!eventDate) return '';
+  if (tmpl.daysBeforeEvent) return addDays(eventDate, -tmpl.daysBeforeEvent);
+  if (tmpl.dateType === 'pm20') return calcPM20(eventDate);
+  return '';
+}
+
+// ================================================================
+// STATE
+// ================================================================
+let currentView = 'events';
+let currentProject = 'pg'; // 'pg' | 'souzoku'
+let fbInitialized = false; // Firebase初期ロード完了フラグ
+let expandedEvents = new Set();
+let expandedDetails = new Set();
+let assigneeFilter = new Set(); // 空=全員、要素あり=その担当者のみ
+let dragSrcEvId = null;
+let dragSrcTaskId = null;
+let inlineEditId = null;  // インライン編集中のタスクID
+let inlineNewCtx = null;  // { eventId, assignee, isPersonal } 新規インライン追加コンテキスト
+
+// ================================================================
+// MODAL HELPERS
+// ================================================================
+function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+function overlayClose(e, id) { if (e.target === e.currentTarget) closeModal(id); }
+
+function buildAssigneeOptions(selected) {
+  return `<option value="">未設定</option>` +
+    getProjectAssignees().map(a => `<option${a===selected?' selected':''}>${a}</option>`).join('');
+}
+
+function fillAssigneeSelect(id, selected) {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = buildAssigneeOptions(selected||'');
+}
+
+// ---- 複数担当者ヘルパー ----
+function getTaskAssignees(t) {
+  if (Array.isArray(t.assignees) && t.assignees.length > 0) return t.assignees;
+  if (t.assignee) return [t.assignee];
+  return [];
+}
+
+function buildAssigneeCBs(selectedArr, groupId) {
+  const el = document.getElementById(groupId);
+  if (!el) return;
+  el.innerHTML = getProjectAssignees().map(a => {
+    const chk = selectedArr.includes(a);
+    return `<label class="assignee-cb-label${chk?' checked':''}">
+      <input type="checkbox" value="${a}"${chk?' checked':''} onchange="this.closest('label').classList.toggle('checked',this.checked)"> ${a}
+    </label>`;
+  }).join('');
+}
+
+function getSelectedCBs(groupId) {
+  const el = document.getElementById(groupId);
+  if (!el) return [];
+  return [...el.querySelectorAll('input:checked')].map(i => i.value);
+}
+
+// ---- プロジェクト切替 ----
+function switchProject(p) {
+  currentProject = p;
+  ['pg','souzoku','arrch'].forEach(id => {
+    const el = document.getElementById('proj-' + id);
+    if (el) el.classList.toggle('active', id === p);
+  });
+  const titles = { pg: '🏠 PG イベント管理', souzoku: '📋 相続 イベント管理', arrch: '🏗️ ARRCH イベント管理' };
+  const titleEl = document.querySelector('.nav-title');
+  if (titleEl) titleEl.textContent = titles[p] || titles.pg;
+  assigneeFilter.clear();
+  personalFilter.clear();
+  fillEventTypeSelect('ev-type', '');
+  renderEventsView();
+  renderAssigneeFilters();
+  renderPersonalFilters();
+  if (currentView === 'template') renderTemplatesView();
+  else if (currentView === 'assignee') renderAssigneeView();
+  else if (currentView === 'personal') renderPersonalView();
+  else if (currentView === 'routine') renderRoutineView();
+}
+
+function getProjectAssignees() {
+  if (currentProject === 'arrch') return DB.arrchAssignees || ['髙松','岡','山下','伊熊'];
+  return DB.assignees || [];
+}
+
+function getProjectEventTypes() {
+  if (currentProject === 'souzoku') return DB.souzokuEventTypes || ['セミナー','個別相談会','勉強会','その他'];
+  if (currentProject === 'arrch') return DB.arrchEventTypes || ['完成見学会','引渡し会','展示会','その他'];
+  return getEventTypes();
+}
+
+function getProjectTemplatesForType(type) {
+  if (currentProject === 'souzoku') {
+    if (DB.souzokuTemplates && DB.souzokuTemplates[type]) return DB.souzokuTemplates[type];
+    return [];
+  }
+  if (currentProject === 'arrch') {
+    if (DB.arrchTemplates && DB.arrchTemplates[type]) return DB.arrchTemplates[type];
+    return [];
+  }
+  return getTemplatesForType(type);
+}
+
+function renderAssigneeFilters() {
+  const row = document.getElementById('assignee-filter-row');
+  if (!row) return;
+  const allActive = assigneeFilter.size === 0;
+  row.innerHTML = `<button class="filter-btn${allActive?' active':''}" onclick="setAssigneeFilterAll()">全員</button>` +
+    getProjectAssignees().map(a =>
+      `<button class="filter-btn${assigneeFilter.has(a)?' active':''}" onclick="toggleAssigneeFilter('${a}')">${a}</button>`
+    ).join('') +
+    `<button class="filter-btn" style="border-style:dashed;color:#aaa" onclick="addAssignee()">＋ 追加</button>`;
+}
+
+function setAssigneeFilterAll() {
+  assigneeFilter.clear();
+  renderAssigneeFilters();
+  renderAssigneeView();
+}
+
+function toggleAssigneeFilter(name) {
+  if (assigneeFilter.has(name)) assigneeFilter.delete(name);
+  else assigneeFilter.add(name);
+  renderAssigneeFilters();
+  renderAssigneeView();
+}
+
+function addAssignee() {
+  const name = prompt('追加する担当者名を入力してください');
+  if (!name || !name.trim()) return;
+  const n = name.trim();
+  const list = getProjectAssignees();
+  if (list.includes(n)) { alert('すでに登録されています'); return; }
+  if (currentProject === 'arrch') {
+    if (!DB.arrchAssignees) DB.arrchAssignees = [];
+    DB.arrchAssignees.push(n);
+  } else {
+    if (!DB.assignees) DB.assignees = [];
+    DB.assignees.push(n);
+  }
+  save(); saveMetaFB();
+  renderAssigneeFilters();
+  renderPersonalFilters();
+}
+
+// ================================================================
+// VIEW SWITCHING
+// ================================================================
+function switchView(v, el) {
+  currentView = v;
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  ['events','assignee','personal','routine','template'].forEach(name => {
+    document.getElementById('view-'+name).classList.toggle('hidden', name !== v);
+  });
+  if (v === 'events') renderEventsView();
+  else if (v === 'assignee') renderAssigneeView();
+  else if (v === 'personal') renderPersonalView();
+  else if (v === 'template') renderTemplatesView();
+  else renderRoutineView();
+}
+
+// ================================================================
+// EVENTS VIEW
+// ================================================================
+function renderEventsView() {
+  const c = document.getElementById('events-container');
+  const ne = document.getElementById('no-event-section');
+  const sortBtn = document.getElementById('btn-sort-date');
+  if (sortBtn) sortBtn.style.display = DB.eventsManuallyOrdered ? '' : 'none';
+
+  const evSearch = (document.getElementById('search-events')?.value || '').trim().toLowerCase();
+  let allEvents = DB.eventsManuallyOrdered
+    ? DB.events
+    : [...DB.events].sort((a,b) => (a.startDate||'').localeCompare(b.startDate||''));
+  // プロジェクトフィルタ（PGはproject未設定も含む）
+  allEvents = allEvents.filter(ev =>
+    currentProject === 'pg' ? (!ev.project || ev.project === 'pg') : ev.project === currentProject
+  );
+  const sorted = evSearch ? allEvents.filter(ev => ev.name.toLowerCase().includes(evSearch)) : allEvents;
+
+  const noEvTasks = DB.tasks.filter(t => !t.eventId && !t.isRoutine && !t.isPersonal);
+
+  // 月ごとのグループをイベントとイベントなしタスク両方から収集（キーはYYYY-MM形式でソート）
+  const evGroups = {};
+  sorted.forEach(ev => {
+    const k = ev.startDate ? ev.startDate.substring(0, 7) : 'none';
+    (evGroups[k] = evGroups[k]||[]).push(ev);
+  });
+  const neGroups = {};
+  noEvTasks.forEach(t => {
+    if (t.productionMonth) {
+      (neGroups[t.productionMonth] = neGroups[t.productionMonth]||[]).push(t);
+    }
+  });
+
+  const allMonthKeys = [...new Set([...Object.keys(evGroups), ...Object.keys(neGroups)])].sort();
+
+  function monthKeyToLabel(k) {
+    if (k === 'none') return '日付未設定';
+    const [y, m] = k.split('-');
+    return `${y}年${parseInt(m)}月`;
+  }
+
+  if (allMonthKeys.length === 0 && noEvTasks.filter(t=>!t.productionMonth).length === 0) {
+    c.innerHTML = `<div class="empty"><div class="empty-icon">📅</div><div class="empty-text">イベントがまだありません。「＋ イベント追加」から始めてください。</div></div>`;
+  } else {
+    c.innerHTML = allMonthKeys.map(k => {
+      const evs = evGroups[k] || [];
+      const neTasks = (neGroups[k] || []).sort((a,b)=>(a.dueDate||'').localeCompare(b.dueDate||''));
+      const neHtml = neTasks.length > 0 ? `
+        <div class="noevent-tasks-group">
+          <div class="noevent-tasks-header">イベントなしタスク</div>
+          ${neTasks.map(t=>taskRowHTML(t,'events')).join('')}
+        </div>` : '';
+      return `<div class="month-group"><div class="month-label">${monthKeyToLabel(k)}</div>${evs.map(ev=>eventCardHTML(ev)).join('')}${neHtml}</div>`;
+    }).join('');
+  }
+
+  // 制作月未設定のイベントなしタスク
+  const unassigned = noEvTasks.filter(t => !t.productionMonth);
+  if (unassigned.length > 0) {
+    ne.innerHTML = `
+      <div class="month-group" style="margin-top:8px">
+        <div class="month-label" style="color:#aaa">制作月未設定</div>
+        <div class="noevent-tasks-group">
+          <div class="task-list">
+            ${unassigned.sort((a,b)=>(a.dueDate||'').localeCompare(b.dueDate||'')).map(t=>taskRowHTML(t,'events')).join('')}
+            <div class="add-task-btn-row">
+              <button class="add-task-link" onclick="showAddTaskModal(null)">＋ タスクを追加</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  } else {
+    ne.innerHTML = '';
+  }
+}
+
+function eventCardHTML(ev) {
+  const tasks = DB.tasks.filter(t => t.eventId === ev.id);
+  const done = tasks.filter(t=>t.done).length;
+  const total = tasks.length;
+  const pct = total > 0 ? Math.round(done/total*100) : 0;
+  const expanded = expandedEvents.has(ev.id);
+  const detailOpen = expandedDetails.has(ev.id);
+  const hasOv = !ev.archived && tasks.some(t => !t.done && isOverdue(t.dueDate));
+  const allDone = ev.archived || (tasks.length > 0 && tasks.every(t => t.done));
+
+  let html = `
+  <div class="event-card${hasOv?' has-overdue':''}${allDone?' all-done':''}" id="ec-${ev.id}"
+    draggable="true"
+    ondragstart="onEvDragStart(event,${ev.id})"
+    ondragover="onEvDragOver(event,${ev.id})"
+    ondragleave="onEvDragLeave(event)"
+    ondrop="onEvDrop(event,${ev.id})"
+    ondragend="onEvDragEnd(event)">
+    <div class="event-header" onclick="toggleExpand(${ev.id})">
+      <span class="drag-handle" onclick="event.stopPropagation()">⠿</span>
+      ${typeBadgeHTML(ev.type)}
+      <div style="display:flex;flex-direction:column;flex:1;min-width:0;gap:2px">
+        <span class="event-name-text">${ev.name}</span>
+        ${ev.title ? `<span style="font-size:12px;color:#6366f1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${ev.title}</span>` : ''}
+      </div>
+      <span class="event-date-text">${fmtJPFull(ev.startDate)}</span>
+      ${ev.docUrl ? `<a href="${ev.docUrl}" target="_blank" onclick="event.stopPropagation()" class="icon-btn" title="ドキュメント" style="text-decoration:none">📄</a>` : ''}
+      <div class="progress-wrap">
+        <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+        <span class="progress-label">${done}/${total}</span>
+      </div>
+      <button class="icon-btn" onclick="event.stopPropagation();toggleArchiveEvent(${ev.id})" title="${ev.archived?'グレー解除':'手動グレー化'}" style="opacity:${ev.archived?1:0.4}">${ev.archived?'🔆':'🌙'}</button>
+      <button class="icon-btn" onclick="event.stopPropagation();duplicateEvent(${ev.id})" title="イベントを複製">📋</button>
+      <button class="icon-btn" onclick="event.stopPropagation();showEditEventModal(${ev.id})" title="イベント編集">⚙️</button>
+      <span class="chevron${(expanded||detailOpen)?' open':''}">▼</span>
+    </div>`;
+
+  const hasInfo = ev.title || ev.docUrl || ev.note;
+  if (detailOpen && hasInfo) {
+    html += `<div class="ev-info-panel">
+      ${ev.title ? `<span class="ev-info-label">HPタイトル</span><span class="ev-info-value">${ev.title}</span>` : ''}
+      ${ev.docUrl ? `<span class="ev-info-label">リンク</span><span class="ev-info-value"><a href="${ev.docUrl}" target="_blank" style="color:#6366f1;text-decoration:none">📄 ドキュメントを開く</a></span>` : ''}
+      ${ev.note ? `<span class="ev-info-label">備考</span><span class="ev-info-value" style="white-space:pre-wrap">${ev.note}</span>` : ''}
+    </div>`;
+  }
+
+  if (expanded) {
+    const sorted = [...tasks].sort((a,b) => (a.dueDate||'').localeCompare(b.dueDate||''));
+    const showAddRow = inlineNewCtx && inlineNewCtx.eventId === ev.id;
+    html += `<div class="task-list">
+      ${sorted.length === 0 && !showAddRow
+        ? '<div style="padding:12px 16px;color:#ccc;font-size:13px">タスクがありません</div>'
+        : sorted.map(t=>taskRowHTML(t,'events')).join('')
+      }
+      ${showAddRow ? inlineAddRowHTML(ev.id, '') : ''}
+      <div class="add-task-btn-row">
+        <button class="add-task-link" onclick="startInlineAdd(${ev.id},'')">＋ タスクを追加</button>
+      </div>
+    </div>`;
+  }
+  html += '</div>';
+  return html;
+}
+
+function taskRowHTML(task, view) {
+  if (task.id === inlineEditId) return inlineRowHTML(task);
+  const ov = !task.done && isOverdue(task.dueDate);
+  return `
+  <div class="task-row${ov?' is-overdue':''}${task.done?' task-done-row':''}">
+    <input type="checkbox" class="task-check" ${task.done?'checked':''} onchange="toggleTask(${task.id},'${view}')">
+    <span class="task-name-cell${task.done?' done':''}" style="cursor:pointer" onclick="startInlineEdit(${task.id})">
+      ${task.name}${task.note?`<span class="task-note-inline">— ${task.note}</span>`:''}
+    </span>
+    ${task.attribute ? `<span class="attr-badge">${task.attribute}</span>` : ''}
+    ${task.taskColor ? `<span class="task-color-dot tc-${task.taskColor}" title="${task.taskColor}"></span>` : ''}
+    ${getTaskAssignees(task).length > 0
+      ? getTaskAssignees(task).map(a=>`<span class="assignee-tag a-${a}">${a}</span>`).join('')
+      : '<span style="width:10px"></span>'}
+    <span class="due-cell${ov?' overdue':''}" style="cursor:pointer" onclick="startInlineEdit(${task.id})">${task.dueDate?fmtJPFull(task.dueDate):'期日未設定'}</span>
+    <div class="row-actions">
+      <button class="icon-btn" onclick="duplicateTask(${task.id})" title="複製">📋</button>
+      <button class="icon-btn" onclick="showEditTaskModal(${task.id})" title="編集">✏️</button>
+      <button class="icon-btn" onclick="deleteTask(${task.id})" title="削除">🗑️</button>
+    </div>
+  </div>`;
+}
+
+function toggleExpand(evId) {
+  if (expandedEvents.has(evId)) expandedEvents.delete(evId);
+  else expandedEvents.add(evId);
+  renderEventsView();
+}
+
+function toggleArchiveEvent(id) {
+  const ev = DB.events.find(e => e.id === id);
+  if (!ev) return;
+  ev.archived = !ev.archived;
+  save(); saveEventFB(ev); renderEventsView();
+}
+
+function collapseAll() {
+  expandedEvents.clear();
+  expandedDetails.clear();
+  const cd = document.getElementById('chk-show-details');
+  const ct = document.getElementById('chk-show-tasks');
+  if (cd) cd.checked = false;
+  if (ct) ct.checked = false;
+  renderEventsView();
+}
+
+function toggleAllDetails(checked) {
+  if (checked) DB.events.forEach(e => expandedDetails.add(e.id));
+  else expandedDetails.clear();
+  renderEventsView();
+}
+
+function toggleAllTasks(checked) {
+  if (checked) DB.events.forEach(e => expandedEvents.add(e.id));
+  else expandedEvents.clear();
+  renderEventsView();
+}
+
+function resetToDateOrder() {
+  DB.events = [...DB.events].sort((a,b) => (a.startDate||'').localeCompare(b.startDate||''));
+  DB.eventsManuallyOrdered = false;
+  save(); saveMetaFB();
+  renderEventsView();
+}
+
+function expandAll() {
+  DB.events.forEach(e => { expandedEvents.add(e.id); expandedDetails.add(e.id); });
+  renderEventsView();
+}
+
+function onEvDragStart(e, evId) {
+  dragSrcEvId = evId;
+  e.dataTransfer.effectAllowed = 'move';
+  setTimeout(() => { const el = document.getElementById('ec-'+evId); if(el) el.classList.add('dragging'); }, 0);
+}
+
+function onEvDragOver(e, evId) {
+  if (dragSrcEvId === evId) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  document.querySelectorAll('.event-card.drag-over').forEach(el => el.classList.remove('drag-over'));
+  e.currentTarget.classList.add('drag-over');
+}
+
+function onEvDragLeave(e) {
+  if (!e.currentTarget.contains(e.relatedTarget)) {
+    e.currentTarget.classList.remove('drag-over');
+  }
+}
+
+function onEvDrop(e, targetEvId) {
+  e.preventDefault();
+  if (dragSrcEvId === null || dragSrcEvId === targetEvId) return;
+  e.currentTarget.classList.remove('drag-over');
+  if (!DB.eventsManuallyOrdered) {
+    DB.events = [...DB.events].sort((a,b) => (a.startDate||'').localeCompare(b.startDate||''));
+    DB.eventsManuallyOrdered = true;
+  }
+  const srcIdx = DB.events.findIndex(ev => ev.id === dragSrcEvId);
+  const tgtIdx = DB.events.findIndex(ev => ev.id === targetEvId);
+  if (srcIdx === -1 || tgtIdx === -1) return;
+  const [srcEv] = DB.events.splice(srcIdx, 1);
+  const newTgt = DB.events.findIndex(ev => ev.id === targetEvId);
+  DB.events.splice(newTgt, 0, srcEv);
+  save(); saveMetaFB();
+  renderEventsView();
+}
+
+function onEvDragEnd(e) {
+  dragSrcEvId = null;
+  document.querySelectorAll('.event-card.dragging, .event-card.drag-over').forEach(el => {
+    el.classList.remove('dragging', 'drag-over');
+  });
+}
+
+// ================================================================
+// ASSIGNEE VIEW
+// ================================================================
+
+function renderAssigneeView() {
+  const c = document.getElementById('assignee-container');
+  const hideDone = document.getElementById('chk-hide-done').checked;
+
+  const assigneeSearch = (document.getElementById('search-assignee')?.value || '').trim().toLowerCase();
+  let tasks = DB.tasks.filter(t => !t.isRoutine);
+  if (assigneeFilter.size > 0) tasks = tasks.filter(t => getTaskAssignees(t).some(a => assigneeFilter.has(a)));
+  if (hideDone) tasks = tasks.filter(t => !t.done);
+  if (assigneeSearch) tasks = tasks.filter(t => t.name.toLowerCase().includes(assigneeSearch));
+
+  if (DB.taskOrder && DB.taskOrder.length) {
+    tasks.sort((a,b) => {
+      const ai = DB.taskOrder.indexOf(a.id);
+      const bi = DB.taskOrder.indexOf(b.id);
+      const an = ai === -1 ? 99999 : ai;
+      const bn = bi === -1 ? 99999 : bi;
+      if (an !== bn) return an - bn;
+      if (!a.dueDate && !b.dueDate) return 0;
+      if (!a.dueDate) return 1;
+      if (!b.dueDate) return -1;
+      return a.dueDate.localeCompare(b.dueDate);
+    });
+  } else {
+    tasks.sort((a,b) => {
+      if (!a.dueDate && !b.dueDate) return 0;
+      if (!a.dueDate) return 1;
+      if (!b.dueDate) return -1;
+      return a.dueDate.localeCompare(b.dueDate);
+    });
+  }
+
+  if (tasks.length === 0 && !inlineNewCtx) {
+    c.innerHTML = `<div class="empty"><div class="empty-icon">✅</div><div class="empty-text">タスクがありません</div></div>`;
+    return;
+  }
+
+  const OV = '⚠️ 期限超過';
+  const NONE = '期日未設定';
+  const groups = {};
+  const keyToLabel = {};
+  tasks.forEach(t => {
+    let key = !t.dueDate ? NONE : (!t.done && isOverdue(t.dueDate)) ? OV : t.dueDate.substring(0,7);
+    if (key !== OV && key !== NONE) keyToLabel[key] = monthLabel(t.dueDate);
+    (groups[key] = groups[key]||[]).push(t);
+  });
+
+  const order = [OV, ...Object.keys(groups).filter(k=>k!==OV&&k!==NONE).sort(), NONE];
+
+  c.innerHTML = order.filter(k=>groups[k]).map(k => {
+    const isOvGroup = k === OV;
+    const label = (k === OV || k === NONE) ? k : (keyToLabel[k] || k);
+    return `<div class="month-group">
+      <div class="month-label" style="${isOvGroup?'color:#e53935':''}">${label}</div>
+      ${groups[k].map(t => {
+        if (t.id === inlineEditId) return inlineRowHTML(t);
+        const ev = t.eventId ? DB.events.find(e=>e.id===t.eventId) : null;
+        const ov = !t.done && isOverdue(t.dueDate);
+        return `<div class="a-task-row${ov?' is-overdue':''}" draggable="true" data-task-id="${t.id}"
+            ondragstart="onTaskDragStart(event,${t.id})"
+            ondragover="onTaskDragOver(event)"
+            ondragleave="onTaskDragLeave(event)"
+            ondrop="onTaskDrop(event,${t.id})">
+          <span class="drag-handle">⠿</span>
+          <input type="checkbox" class="task-check" ${t.done?'checked':''} onchange="toggleTask(${t.id},'assignee')">
+          <span class="task-name-cell${t.done?' done':''}" style="flex:1;cursor:pointer" onclick="startInlineEdit(${t.id})">${t.name}</span>
+          ${getTaskAssignees(t).map(a=>`<span class="assignee-tag a-${a}">${a}</span>`).join('')}
+          <span class="due-cell${ov?' overdue':''}" style="cursor:pointer" onclick="startInlineEdit(${t.id})">${t.dueDate?fmtJP(t.dueDate):'—'}</span>
+          <span class="event-tag" title="${ev?ev.name:'イベントなし'}">${ev?ev.name:'イベントなし'}</span>
+          <div class="row-actions" style="opacity:1">
+            <button class="icon-btn" onclick="duplicateTask(${t.id})" title="複製">📋</button>
+            <button class="icon-btn" onclick="showEditTaskModal(${t.id})">✏️</button>
+            <button class="icon-btn" onclick="deleteTask(${t.id})">🗑️</button>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+  }).join('') + (inlineNewCtx && inlineNewCtx.eventId === null
+    ? `<div style="margin-top:8px">${inlineAddRowHTML(null, inlineNewCtx.assignee)}</div>`
+    : '');
+}
+
+// ================================================================
+// ASSIGNEE VIEW D&D
+// ================================================================
+function onTaskDragStart(e, taskId) {
+  dragSrcTaskId = taskId;
+  e.dataTransfer.effectAllowed = 'move';
+}
+
+function onTaskDragOver(e) {
+  e.preventDefault();
+  e.currentTarget.classList.add('drag-over');
+}
+
+function onTaskDragLeave(e) {
+  e.currentTarget.classList.remove('drag-over');
+}
+
+function onTaskDrop(e, targetTaskId) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  if (dragSrcTaskId === null || dragSrcTaskId === targetTaskId) return;
+
+  if (!DB.taskOrder) DB.taskOrder = DB.tasks.map(t => t.id);
+  // 全タスクIDが入っていない場合は補完
+  DB.tasks.forEach(t => { if (!DB.taskOrder.includes(t.id)) DB.taskOrder.push(t.id); });
+
+  const fromIdx = DB.taskOrder.indexOf(dragSrcTaskId);
+  const toIdx   = DB.taskOrder.indexOf(targetTaskId);
+  if (fromIdx === -1 || toIdx === -1) return;
+  DB.taskOrder.splice(fromIdx, 1);
+  DB.taskOrder.splice(toIdx, 0, dragSrcTaskId);
+  dragSrcTaskId = null;
+  save(); saveMetaFB();
+  renderAssigneeView();
+}
+
+// ================================================================
+// ASSIGNEE VIEW ADD TASK
+// ================================================================
+function showAddTaskFromAssignee() {
+  // 選択中の担当者が1人なら初期値にセット
+  const preAssignee = assigneeFilter.size === 1 ? [...assigneeFilter][0] : '';
+  showAddTaskModal(null, preAssignee);
+}
+
+// ================================================================
+// PERSONAL VIEW
+// ================================================================
+let expandedPersonal = new Set();
+let personalFilter = new Set(); // 空=全員
+
+function togglePersonalSection(name) {
+  if (expandedPersonal.has(name)) expandedPersonal.delete(name);
+  else expandedPersonal.add(name);
+  renderPersonalView();
+}
+
+function renderPersonalFilters() {
+  const row = document.getElementById('personal-filter-row');
+  if (!row) return;
+  const allActive = personalFilter.size === 0;
+  row.innerHTML = `<button class="filter-btn${allActive?' active':''}" onclick="setPersonalFilterAll()">全員</button>` +
+    getProjectAssignees().map(a =>
+      `<button class="filter-btn${personalFilter.has(a)?' active':''}" onclick="togglePersonalFilter('${a}')">${a}</button>`
+    ).join('');
+}
+
+function setPersonalFilterAll() {
+  personalFilter.clear();
+  renderPersonalFilters();
+  renderPersonalView();
+}
+
+function togglePersonalFilter(name) {
+  if (personalFilter.has(name)) personalFilter.delete(name);
+  else personalFilter.add(name);
+  // フィルター選択した人は自動展開
+  if (personalFilter.has(name)) expandedPersonal.add(name);
+  renderPersonalFilters();
+  renderPersonalView();
+}
+
+function renderPersonalView() {
+  const c = document.getElementById('personal-container');
+  const hideDone = document.getElementById('chk-personal-hide-done').checked;
+  const assignees = getProjectAssignees();
+
+  if (assignees.length === 0) {
+    c.innerHTML = `<div class="empty"><div class="empty-icon">👤</div><div class="empty-text">担当者が登録されていません</div></div>`;
+    return;
+  }
+
+  const visibleAssignees = personalFilter.size > 0
+    ? assignees.filter(a => personalFilter.has(a))
+    : assignees;
+
+  const personalSearch = (document.getElementById('search-personal')?.value || '').trim().toLowerCase();
+
+  c.innerHTML = visibleAssignees.map(person => {
+    let tasks = DB.tasks.filter(t => !t.isRoutine && getTaskAssignees(t).includes(person));
+    const totalUndone = tasks.filter(t => !t.done).length;
+    if (hideDone) tasks = tasks.filter(t => !t.done);
+    if (personalSearch) tasks = tasks.filter(t => t.name.toLowerCase().includes(personalSearch));
+
+    // personalFilterで絞り込み中は自動展開
+    const isOpen = personalFilter.has(person) ? true : expandedPersonal.has(person);
+    const avatarColor = hashColor(person);
+
+    function sortByOrder(arr) {
+      if (!DB.taskOrder || !DB.taskOrder.length) return arr.sort((a,b) => (a.dueDate||'zzz').localeCompare(b.dueDate||'zzz'));
+      return arr.slice().sort((a,b) => {
+        const ai = DB.taskOrder.indexOf(a.id), bi = DB.taskOrder.indexOf(b.id);
+        return (ai===-1?99999:ai) - (bi===-1?99999:bi);
+      });
+    }
+
+    const eventTasks = sortByOrder(tasks.filter(t => t.eventId));
+    const noEvTasks  = sortByOrder(tasks.filter(t => !t.eventId));
+
+    const taskRowHtml = (t) => {
+      if (t.id === inlineEditId) return inlineRowHTML(t);
+      const ev = t.eventId ? DB.events.find(e => e.id === t.eventId) : null;
+      const ov = !t.done && isOverdue(t.dueDate);
+      return `<div class="personal-task-row${ov?' is-overdue':''}${t.done?' done-row':''}" draggable="true" data-task-id="${t.id}"
+          ondragstart="onTaskDragStart(event,${t.id})"
+          ondragover="onTaskDragOver(event)"
+          ondragleave="onTaskDragLeave(event)"
+          ondrop="onTaskDrop(event,${t.id})">
+        <span class="drag-handle">⠿</span>
+        <input type="checkbox" class="task-check" ${t.done?'checked':''} onchange="toggleTask(${t.id},'personal')">
+        <span class="task-name-cell${t.done?' done':''}" style="flex:1;cursor:pointer" onclick="startInlineEdit(${t.id})">${t.name}${t.note?`<span class="task-note-inline">— ${t.note}</span>`:''}</span>
+        ${ev ? `<span class="personal-event-label" title="${ev.name}">${ev.name}</span>` : ''}
+        ${t.attribute ? `<span class="attr-badge">${t.attribute}</span>` : ''}
+        <span class="due-cell${ov?' overdue':''}" style="cursor:pointer" onclick="startInlineEdit(${t.id})">${t.dueDate ? fmtJPFull(t.dueDate) : '期日未設定'}</span>
+        <div class="row-actions" style="opacity:1" onclick="event.stopPropagation()">
+          <button class="icon-btn" type="button" onclick="duplicateTask(${t.id})" title="複製">📋</button>
+          <button class="icon-btn" type="button" onclick="showEditTaskModal(${t.id})" title="編集">✏️</button>
+          <button class="icon-btn" type="button" onclick="deleteTask(${t.id})" title="削除">🗑️</button>
+        </div>
+      </div>`;
+    };
+
+    const body = isOpen ? `
+      ${eventTasks.length > 0 ? `
+        <div class="personal-group-label">制作タスク（${eventTasks.length}件）</div>
+        ${eventTasks.map(taskRowHtml).join('')}` : ''}
+      ${noEvTasks.length > 0 ? `
+        <div class="personal-group-label">個人タスク（${noEvTasks.length}件）</div>
+        ${noEvTasks.map(taskRowHtml).join('')}` : ''}
+      ${tasks.length === 0 && !(inlineNewCtx && inlineNewCtx.assignee === person) ? `<div style="padding:12px 18px;color:#ccc;font-size:13px">タスクがありません</div>` : ''}
+      ${inlineNewCtx && inlineNewCtx.assignee === person ? `<div style="padding:4px 18px 8px">${inlineAddRowHTML(null, person)}</div>` : ''}
+      <div style="padding:8px 18px;border-top:1px solid #f0f0f0">
+        <button class="add-task-link" onclick="startInlineAdd(null,'${person}',true)">＋ 個人タスクを追加</button>
+      </div>
+    ` : '';
+
+    return `<div class="personal-section">
+      <div class="personal-section-header" onclick="togglePersonalSection('${person}')">
+        <div class="personal-avatar" style="background:${avatarColor}">${person.charAt(0)}</div>
+        <span class="personal-name">${person}</span>
+        <span class="personal-count">${totalUndone > 0 ? `未完了 ${totalUndone}件` : '完了済み'}</span>
+        <span class="personal-chevron${isOpen?' open':''}">▼</span>
+      </div>
+      ${body}
+    </div>`;
+  }).join('');
+}
+
+function hashColor(str) {
+  const colors = ['#e05a00','#6366f1','#0891b2','#16a34a','#9333ea','#db2777','#ca8a04'];
+  let h = 0; for (let i=0; i<str.length; i++) h = (h*31 + str.charCodeAt(i)) % colors.length;
+  return colors[h];
+}
+
+// ================================================================
+// ROUTINE VIEW
+// ================================================================
+function renderRoutineView() {
+  const c = document.getElementById('routine-container');
+  const today = new Date();
+  const yr = today.getFullYear(), mo = today.getMonth()+1;
+  const thisMonth = `${yr}-${p2(mo)}`;
+
+  // プロジェクトでフィルタリング（projectフィールドなしはpgとして扱う）
+  const projRoutines = DB.routines.filter(r =>
+    currentProject === 'pg'
+      ? (!r.project || r.project === 'pg')
+      : r.project === currentProject
+  );
+
+  let html = `<div class="routine-card">
+    <div class="routine-section-title">毎月自動追加されるタスク定義</div>`;
+
+  if (projRoutines.length === 0) {
+    html += `<div style="color:#ccc;font-size:13px;padding:8px 0">ルーティンタスクがありません</div>`;
+  } else {
+    projRoutines.forEach(r => {
+      html += `<div class="task-row">
+        <span class="task-name-cell">${r.name}</span>
+        ${r.assignee?`<span class="assignee-tag a-${r.assignee}">${r.assignee}</span>`:''}
+        <span class="due-cell">毎月${r.dueDayOfMonth}日</span>
+        <div class="row-actions" style="opacity:1">
+          <button class="icon-btn" onclick="deleteRoutine(${r.id})">🗑️</button>
+        </div>
+      </div>`;
+    });
+  }
+  html += `</div>`;
+
+  // 今月のルーティンタスク（プロジェクト別）
+  const thisMonthTasks = DB.tasks.filter(t => t.isRoutine && t.routineMonth === thisMonth &&
+    (currentProject === 'pg' ? (!t.project || t.project === 'pg') : t.project === currentProject));
+  html += `<div class="routine-card">
+    <div class="routine-section-title">${yr}年${mo}月のルーティンタスク</div>`;
+
+  if (thisMonthTasks.length === 0) {
+    html += `<div style="color:#ccc;font-size:13px;padding:4px 0 10px">まだ生成されていません</div>
+      <button class="btn btn-primary btn-sm" onclick="genRoutineTasks()">今月のタスクを生成</button>`;
+  } else {
+    thisMonthTasks.forEach(t => { html += taskRowHTML(t, 'routine'); });
+  }
+  html += `</div>`;
+
+  c.innerHTML = html;
+}
+
+// ================================================================
+// ADD / EDIT EVENT
+// ================================================================
+function showAddEventModal() {
+  document.getElementById('ev-name').value = '';
+  fillEventTypeSelect('ev-type', '');
+  document.getElementById('ev-date').value = '';
+  document.getElementById('tmpl-preview-wrap').classList.add('hidden');
+  openModal('modal-add-event');
+}
+
+function onEvTypeChange() {
+  const type = document.getElementById('ev-type').value;
+  const date = document.getElementById('ev-date').value;
+  if (!type) { document.getElementById('tmpl-preview-wrap').classList.add('hidden'); return; }
+  const tmpl = getProjectTemplatesForType(type);
+  document.getElementById('tmpl-preview-wrap').classList.remove('hidden');
+  document.getElementById('tmpl-preview-list').innerHTML = tmpl.map(t => {
+    const due = date ? calcDue(t, date) : null;
+    const dueStr = due ? fmtJP(due) : (t.dateType==='manual'?'手入力':'日付入力後に計算');
+    return `<div class="tmpl-row">
+      <span class="tmpl-name">${t.name}</span>
+      <span class="tmpl-assignee">${t.assignee||'未設定'}</span>
+      <span class="tmpl-due">${dueStr}</span>
+    </div>`;
+  }).join('');
+}
+
+function doAddEvent() {
+  const name = document.getElementById('ev-name').value.trim();
+  const type = document.getElementById('ev-type').value;
+  const startDate = document.getElementById('ev-date').value;
+  if (!name||!type||!startDate) { alert('イベント名・種別・開催日は必須です'); return; }
+
+  const evId = DB.nextEv++;
+  const newEv = { id: evId, name, type, startDate, title: '', docUrl: '', note: '', project: currentProject };
+  DB.events.push(newEv);
+
+  getProjectTemplatesForType(type).forEach(t => {
+    const newTask = {
+      id: DB.nextTask++, eventId: evId,
+      name: t.name,
+      assignee: t.assignee||'',
+      assignees: t.assignee ? [t.assignee] : [],
+      dueDate: calcDue(t, startDate)||'',
+      done: false, note: '', isRoutine: false,
+      ...(t.color ? { taskColor: t.color } : {}),
+    };
+    DB.tasks.push(newTask);
+    saveTaskFB(newTask);
+  });
+
+  expandedEvents.add(evId);
+  save(); saveEventFB(newEv); saveMetaFB(); closeModal('modal-add-event');
+  renderEventsView();
+}
+
+function showEditEventModal(evId) {
+  const ev = DB.events.find(e=>e.id===evId);
+  if (!ev) return;
+  document.getElementById('ee-id').value = evId;
+  document.getElementById('ee-name').value = ev.name;
+  fillEventTypeSelect('ee-type', ev.type);
+  document.getElementById('ee-date').value = ev.startDate||'';
+  document.getElementById('ee-title').value = ev.title||'';
+  document.getElementById('ee-docurl').value = ev.docUrl||'';
+  document.getElementById('ee-note').value = ev.note||'';
+  openModal('modal-edit-event');
+}
+
+function doSaveEvent() {
+  const id = parseInt(document.getElementById('ee-id').value);
+  const ev = DB.events.find(e=>e.id===id);
+  if (!ev) return;
+  ev.name = document.getElementById('ee-name').value.trim()||ev.name;
+  ev.type = document.getElementById('ee-type').value;
+  ev.startDate = document.getElementById('ee-date').value;
+  ev.title = document.getElementById('ee-title').value.trim();
+  ev.docUrl = document.getElementById('ee-docurl').value.trim();
+  ev.note = document.getElementById('ee-note').value.trim();
+  save(); saveEventFB(ev); closeModal('modal-edit-event'); renderEventsView();
+}
+
+function doDeleteEvent() {
+  const id = parseInt(document.getElementById('ee-id').value);
+  if (!confirm('このイベントとすべてのタスクを削除しますか？')) return;
+  const deletedTaskIds = DB.tasks.filter(t=>t.eventId===id).map(t=>t.id);
+  DB.events = DB.events.filter(e=>e.id!==id);
+  DB.tasks = DB.tasks.filter(t=>t.eventId!==id);
+  expandedEvents.delete(id);
+  save(); deleteEventFB(id); deletedTaskIds.forEach(tid => deleteTaskFB(tid)); closeModal('modal-edit-event'); renderEventsView();
+}
+
+// ================================================================
+// ADD / EDIT TASK
+// ================================================================
+let _addingFromPersonal = false;
+function showAddPersonalTaskModal(person) {
+  _addingFromPersonal = true;
+  showAddTaskModal(null, person);
+  document.getElementById('add-task-title').textContent = `タスク追加（${person}）`;
+}
+
+function showAddTaskModal(evId, preAssignee) {
+  const fromAssignee = (evId === null && preAssignee !== undefined);
+  document.getElementById('t-event-id').value = evId||'';
+  document.getElementById('t-name').value = '';
+  buildAssigneeCBs(preAssignee ? [preAssignee] : [], 't-assignees-group');
+  document.getElementById('t-due').value = '';
+  document.getElementById('t-note').value = '';
+  document.getElementById('t-prod-month').value = '';
+  document.getElementById('t-attr').value = '';
+
+  // イベント選択プルダウン（担当者別から開いた時のみ表示）
+  const evSelGroup = document.getElementById('t-event-select-group');
+  const evSel = document.getElementById('t-event-select');
+  if (fromAssignee) {
+    evSel.innerHTML = '<option value="">イベントなし</option>' +
+      DB.events.map(e => `<option value="${e.id}">${e.name}</option>`).join('');
+    evSel.value = '';
+    evSelGroup.classList.remove('hidden');
+  } else {
+    evSelGroup.classList.add('hidden');
+  }
+
+  const isNoEvent = !evId;
+  document.getElementById('t-noevent-fields').classList.toggle('hidden', !isNoEvent);
+  const ev = evId ? DB.events.find(e=>e.id===evId) : null;
+  document.getElementById('add-task-title').textContent = ev ? `タスク追加（${ev.name}）` : 'タスク追加';
+  openModal('modal-add-task');
+}
+
+function onTaskEventSelectChange() {
+  const evId = document.getElementById('t-event-select').value;
+  document.getElementById('t-event-id').value = evId;
+  document.getElementById('t-noevent-fields').classList.toggle('hidden', !!evId);
+}
+
+function doAddTask() {
+  const name = document.getElementById('t-name').value.trim();
+  if (!name) { alert('タスク名を入力してください'); return; }
+  const evIdStr = document.getElementById('t-event-id').value;
+  const isNoEvent = !evIdStr;
+  const newTask = {
+    id: DB.nextTask++,
+    eventId: evIdStr ? parseInt(evIdStr) : null,
+    name,
+    assignees: getSelectedCBs('t-assignees-group'),
+    assignee: getSelectedCBs('t-assignees-group')[0] || '',
+    dueDate: document.getElementById('t-due').value,
+    done: false, note: document.getElementById('t-note').value, isRoutine: false,
+    productionMonth: isNoEvent ? document.getElementById('t-prod-month').value : '',
+    attribute: isNoEvent ? document.getElementById('t-attr').value : '',
+    isPersonal: _addingFromPersonal ? true : undefined,
+  };
+  _addingFromPersonal = false;
+  DB.tasks.push(newTask);
+  save(); saveTaskFB(newTask); saveMetaFB(); closeModal('modal-add-task');
+  if (currentView==='events') renderEventsView();
+  else if (currentView==='assignee') renderAssigneeView();
+  else if (currentView==='personal') renderPersonalView();
+}
+
+function toggleRoutineFields() {
+  const on = document.getElementById('et-is-routine').checked;
+  document.getElementById('et-routine-fields').classList.toggle('hidden', !on);
+}
+
+function showEditTaskModal(id) {
+  const t = DB.tasks.find(x=>x.id===id);
+  if (!t) { alert('タスクが見つかりません'); return; }
+  document.getElementById('et-id').value = id;
+  document.getElementById('et-name').value = t.name;
+  buildAssigneeCBs(getTaskAssignees(t), 'et-assignees-group');
+  document.getElementById('et-due').value = t.dueDate||'';
+  document.getElementById('et-note').value = t.note||'';
+  // イベント紐づけセレクト
+  const evSel = document.getElementById('et-event-link');
+  evSel.innerHTML = '<option value="">紐づけない（個人タスク）</option>' +
+    (DB.events||[]).map(e => `<option value="${e.id}"${t.eventId===e.id?' selected':''}>${e.name}</option>`).join('');
+  const isNoEvent = !t.eventId && !t.isRoutine;
+  document.getElementById('et-noevent-fields').classList.toggle('hidden', !isNoEvent);
+  document.getElementById('et-prod-month').value = t.productionMonth||'';
+  document.getElementById('et-attr').value = t.attribute||'';
+  // ルーティン設定
+  const alreadyRoutine = !!t.isRoutine;
+  document.getElementById('et-is-routine').checked = alreadyRoutine;
+  document.getElementById('et-is-routine').disabled = alreadyRoutine; // 既にルーティンなら変更不可
+  // 期日から日にちを初期値にセット
+  const dayFromDue = t.dueDate ? parseInt(t.dueDate.split('-')[2]) : 20;
+  const existingDay = t.routineId ? (DB.routines.find(r=>r.id===t.routineId)||{}).dueDayOfMonth : null;
+  document.getElementById('et-routine-day').value = existingDay || dayFromDue;
+  document.getElementById('et-routine-fields').classList.toggle('hidden', !alreadyRoutine);
+  openModal('modal-edit-task');
+}
+
+function doSaveTask() {
+  const id = parseInt(document.getElementById('et-id').value);
+  const t = DB.tasks.find(x=>x.id===id);
+  if (!t) return;
+  t.name = document.getElementById('et-name').value.trim()||t.name;
+  t.assignees = getSelectedCBs('et-assignees-group');
+  t.assignee = t.assignees[0] || '';
+  t.dueDate = document.getElementById('et-due').value;
+  t.note = document.getElementById('et-note').value;
+  // イベント紐づけ更新
+  const evLinkVal = document.getElementById('et-event-link').value;
+  if (evLinkVal) {
+    t.eventId = parseInt(evLinkVal);
+    t.isPersonal = false;
+  } else {
+    t.eventId = t.eventId || null;
+  }
+  if (!t.eventId && !t.isRoutine) {
+    t.productionMonth = document.getElementById('et-prod-month').value;
+    t.attribute = document.getElementById('et-attr').value;
+  }
+  // ルーティン登録（新規のみ：既存ルーティンタスクはスキップ）
+  const makeRoutine = document.getElementById('et-is-routine').checked;
+  let newRoutine = null;
+  if (makeRoutine && !t.isRoutine) {
+    const day = parseInt(document.getElementById('et-routine-day').value) || 20;
+    newRoutine = { id: DB.nextRt++, name: t.name, assignee: t.assignee, dueDayOfMonth: day };
+    DB.routines.push(newRoutine);
+    t.isRoutine = true;
+    t.routineId = newRoutine.id;
+    // 今月のルーティン月を設定
+    const today = new Date();
+    t.routineMonth = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
+  }
+  save(); saveTaskFB(t);
+  if (newRoutine) { saveRoutineFB(newRoutine); saveMetaFB(); }
+  closeModal('modal-edit-task');
+  if (currentView==='events') renderEventsView();
+  else if (currentView==='assignee') renderAssigneeView();
+  else if (currentView==='personal') renderPersonalView();
+  else renderRoutineView();
+}
+
+function toggleTask(id, view) {
+  const t = DB.tasks.find(x=>x.id===id);
+  if (t) { t.done = !t.done; save(); saveTaskFB_withSnapshot(t); }
+  if (view==='events') renderEventsView();
+  else if (view==='assignee') renderAssigneeView();
+  else if (view==='personal') renderPersonalView();
+  else renderRoutineView();
+}
+
+function deleteTask(id) {
+  if (!confirm('このタスクを削除しますか？')) return;
+  DB.tasks = DB.tasks.filter(t=>t.id!==id);
+  save(); deleteTaskFB(id);
+  if (currentView==='events') renderEventsView();
+  else if (currentView==='assignee') renderAssigneeView();
+  else if (currentView==='personal') renderPersonalView();
+  else renderRoutineView();
+}
+
+function duplicateTask(id) {
+  const src = DB.tasks.find(t => t.id === id);
+  if (!src) return;
+  const copy = { ...src, id: DB.nextTask++, done: false, name: src.name + '（コピー）' };
+  DB.tasks.push(copy);
+  save(); saveTaskFB(copy); saveMetaFB();
+  if (currentView === 'events') renderEventsView();
+  else if (currentView === 'assignee') renderAssigneeView();
+  else if (currentView === 'personal') renderPersonalView();
+}
+
+function duplicateEvent(id) {
+  const src = DB.events.find(e => e.id === id);
+  if (!src) return;
+  const newEv = { ...src, id: DB.nextEv++, name: src.name + '（コピー）' };
+  DB.events.push(newEv);
+  const srcTasks = DB.tasks.filter(t => t.eventId === id);
+  srcTasks.forEach(t => {
+    const copy = { ...t, id: DB.nextTask++, eventId: newEv.id, done: false };
+    DB.tasks.push(copy);
+    saveTaskFB(copy);
+  });
+  save(); saveEventFB(newEv); saveMetaFB();
+  renderEventsView();
+}
+
+// ================================================================
+// INLINE EDITING
+// ================================================================
+function rerenderCurrentView() {
+  if (currentView === 'events') renderEventsView();
+  else if (currentView === 'assignee') renderAssigneeView();
+  else if (currentView === 'personal') renderPersonalView();
+}
+
+function startInlineEdit(id) {
+  if (inlineEditId === id) return;
+  inlineNewCtx = null;
+  inlineEditId = id;
+  rerenderCurrentView();
+  setTimeout(() => { const el = document.querySelector('.inline-field.f-name'); if (el) el.focus(); }, 30);
+}
+
+function startInlineAdd(eventId, assignee, isPersonal) {
+  inlineEditId = null;
+  inlineNewCtx = { eventId: eventId ?? null, assignee: assignee || '', isPersonal: !!isPersonal };
+  rerenderCurrentView();
+  setTimeout(() => { const el = document.querySelector('.inline-field.f-name'); if (el) el.focus(); }, 30);
+}
+
+function cancelInlineEdit() {
+  inlineEditId = null;
+  inlineNewCtx = null;
+  rerenderCurrentView();
+}
+
+function saveInlineEdit() {
+  const nameEl   = document.querySelector('.inline-field.f-name');
+  const assigneeEl = document.querySelector('.inline-field.f-assignee');
+  const dateEl   = document.querySelector('.inline-field.f-date');
+  if (!nameEl) return;
+  const name = nameEl.value.trim();
+  if (!name) { cancelInlineEdit(); return; }
+  const assignee = assigneeEl ? assigneeEl.value : '';
+  const dueDate  = dateEl ? dateEl.value : '';
+
+  if (inlineEditId !== null) {
+    const task = DB.tasks.find(t => t.id === inlineEditId);
+    if (task) { task.name = name; task.assignee = assignee; task.dueDate = dueDate; save(); saveTaskFB(task); }
+    inlineEditId = null;
+    inlineNewCtx = null;
+    rerenderCurrentView();
+  } else if (inlineNewCtx !== null) {
+    const ctx = inlineNewCtx;
+    // 個人タスク追加フォームのイベント紐づけセレクトを読む
+    const evLinkEl = document.querySelector('.inline-field.f-evlink');
+    const evLinkId = evLinkEl ? (evLinkEl.value ? parseInt(evLinkEl.value) : null) : (ctx.eventId || null);
+    const newTask = { id: DB.nextTask++, name, assignee: assignee || ctx.assignee || '', dueDate, done: false, eventId: evLinkId, isRoutine: false, isPersonal: evLinkId ? false : (ctx.isPersonal || undefined), project: currentProject };
+    DB.tasks.push(newTask);
+    if (!DB.taskOrder) DB.taskOrder = [];
+    DB.taskOrder.push(newTask.id);
+    save(); saveTaskFB(newTask); saveMetaFB();
+    // 連続入力: 新規行は開いたまま
+    rerenderCurrentView();
+    setTimeout(() => { const el = document.querySelector('.inline-field.f-name'); if (el) { el.value = ''; el.focus(); } }, 30);
+  }
+}
+
+function inlineKeyDown(e) {
+  if (e.key === 'Enter') { e.preventDefault(); saveInlineEdit(); }
+  if (e.key === 'Escape') { e.preventDefault(); cancelInlineEdit(); }
+}
+
+function rowClick(e, id) {
+  // ボタン・チェックボックス・ドラッグハンドル・row-actionsは除外
+  if (e.target.closest('button,input,.drag-handle,.row-actions,.assignee-tag,.attr-badge,.event-tag,.personal-event-label')) return;
+  startInlineEdit(id);
+}
+
+function inlineRowHTML(task) {
+  const assigneeOpts = getProjectAssignees().map(a =>
+    `<option value="${a}"${task.assignee===a?' selected':''}>${a}</option>`).join('');
+  return `<div class="task-row inline-editing">
+    <input type="checkbox" class="task-check" ${task.done?'checked':''} onchange="toggleTask(${task.id},'${currentView}')">
+    <input class="inline-field f-name" value="${(task.name||'').replace(/"/g,'&quot;')}" placeholder="タスク名" onkeydown="inlineKeyDown(event)">
+    <select class="inline-field f-assignee" onkeydown="inlineKeyDown(event)">
+      <option value="">担当者</option>${assigneeOpts}
+    </select>
+    <input type="date" class="inline-field f-date" value="${task.dueDate||''}" onkeydown="inlineKeyDown(event)">
+    <button class="inline-save-btn" onclick="saveInlineEdit()">保存</button>
+    <button class="inline-cancel-btn" onclick="cancelInlineEdit()" title="キャンセル">✕</button>
+  </div>`;
+}
+
+function inlineAddRowHTML(eventId, assignee) {
+  const assigneeOpts = getProjectAssignees().map(a =>
+    `<option value="${a}"${assignee===a?' selected':''}>${a}</option>`).join('');
+  // 個人タスク追加時（eventId===null）はイベント紐づけ選択肢を出す
+  const evOpts = eventId === null
+    ? (() => {
+        const evs = DB.events.filter(ev => currentProject === 'pg' ? (!ev.project || ev.project === 'pg') : ev.project === currentProject);
+        return `<select class="inline-field f-evlink" style="max-width:130px;font-size:11px" onkeydown="inlineKeyDown(event)">
+          <option value="">イベント紐づけなし</option>
+          ${evs.map(ev => `<option value="${ev.id}">${ev.name.length>16?ev.name.slice(0,16)+'…':ev.name}</option>`).join('')}
+        </select>`;
+      })()
+    : '';
+  return `<div class="inline-row-new">
+    <input class="inline-field f-name" placeholder="タスク名を入力（Enterで追加）" onkeydown="inlineKeyDown(event)">
+    <select class="inline-field f-assignee" onkeydown="inlineKeyDown(event)">
+      <option value="">担当者</option>${assigneeOpts}
+    </select>
+    <input type="date" class="inline-field f-date" onkeydown="inlineKeyDown(event)">
+    ${evOpts}
+    <button class="inline-save-btn" onclick="saveInlineEdit()">追加</button>
+    <button class="inline-cancel-btn" onclick="cancelInlineEdit()" title="閉じる">✕</button>
+  </div>`;
+}
+
+// ================================================================
+// ROUTINE
+// ================================================================
+function showAddRoutineModal() {
+  document.getElementById('r-name').value = '';
+  fillAssigneeSelect('r-assignee', '');
+  document.getElementById('r-day').value = '20';
+  openModal('modal-add-routine');
+}
+
+function doAddRoutine() {
+  const name = document.getElementById('r-name').value.trim();
+  if (!name) { alert('タスク名を入力してください'); return; }
+  const newRoutine = {
+    id: DB.nextRt++, name,
+    assignee: document.getElementById('r-assignee').value,
+    dueDayOfMonth: parseInt(document.getElementById('r-day').value)||20,
+    project: currentProject,
+  };
+  DB.routines.push(newRoutine);
+  save(); saveRoutineFB(newRoutine); saveMetaFB(); closeModal('modal-add-routine'); renderRoutineView();
+}
+
+function deleteRoutine(id) {
+  if (!confirm('このルーティンを削除しますか？')) return;
+  DB.routines = DB.routines.filter(r=>r.id!==id);
+  save(); deleteRoutineFB(id); renderRoutineView();
+}
+
+function genRoutineTasks() {
+  const today = new Date();
+  const yr = today.getFullYear(), mo = today.getMonth()+1;
+  const thisMonth = `${yr}-${p2(mo)}`;
+  DB.routines.forEach(r => {
+    const exists = DB.tasks.some(t=>t.isRoutine&&t.routineId===r.id&&t.routineMonth===thisMonth);
+    if (!exists) {
+      const newTask = {
+        id: DB.nextTask++, eventId: null,
+        name: r.name, assignee: r.assignee,
+        dueDate: `${yr}-${p2(mo)}-${p2(r.dueDayOfMonth)}`,
+        done: false, note: '', isRoutine: true,
+        routineId: r.id, routineMonth: thisMonth,
+      };
+      DB.tasks.push(newTask);
+      saveTaskFB(newTask);
+    }
+  });
+  save(); saveMetaFB(); renderRoutineView();
+}
+
+// ================================================================
+// SEED DATA
+// ================================================================
+const SEED_EVENTS = [
+  { name: 'パークイベント※常設（6月）',               type: '常設',         startDate: '2026-06-01' },
+  { name: 'ブランド認知（6月）',                       type: 'その他',       startDate: '2026-06-01' },
+  { name: '2階建 見学会（6〜7月）',                    type: '2ヶ月イベント', startDate: '2026-06-01' },
+  { name: 'パークイベント※気軽な感じ※1ヶ月（6月）',   type: 'パークイベント', startDate: '2026-06-01' },
+  { name: '平屋見学会（6〜7月）',                      type: '2ヶ月イベント', startDate: '2026-06-01' },
+  { name: 'パークイベント※気軽な感じ※1ヶ月（7月）',   type: 'パークイベント', startDate: '2026-07-01' },
+  { name: '平屋／2階建 見比べ見学会（7月～8月）',      type: '2ヶ月イベント', startDate: '2026-07-01' },
+  { name: 'ブランド認知（7月）',                       type: 'その他',       startDate: '2026-07-01' },
+  { name: '202607_標準ページ',                         type: 'その他',       startDate: '2026-07-01' },
+  { name: '三室様邸完成見学会（7月）',                  type: '完成見学会',   startDate: '2026-07-01' },
+  { name: '202607_アイスワールド',                     type: 'パークイベント', startDate: '2026-07-01' },
+  { name: '20260725-26_平松様邸見学会',                type: '完成見学会',   startDate: '2026-07-25' },
+  { name: '202608_ブランド認知',                       type: 'その他',       startDate: '2026-08-01' },
+  { name: '202608_パークイベント※気軽な感じ※1ヶ月',   type: 'パークイベント', startDate: '2026-08-01' },
+  { name: '202608_平屋見学会（8〜9月）',               type: '2ヶ月イベント', startDate: '2026-08-01' },
+  { name: '202608_2階建 見学会（8〜9月）',             type: '2ヶ月イベント', startDate: '2026-08-01' },
+  { name: '202608_建売・賃貸の価格で家建てられます',   type: 'キャンペーン', startDate: '2026-08-01' },
+  { name: '202609_ブランド認知（9月）',                type: 'その他',       startDate: '2026-09-01' },
+  { name: '202609_パークイベント※浜北グランド記念（9月）', type: 'パークイベント', startDate: '2026-09-01' },
+  { name: '202609_2棟　見比べ',                        type: '2ヶ月イベント', startDate: '2026-09-01' },
+  { name: '202609_イエタテ表（11月発行）',              type: 'その他',       startDate: '2026-09-01' },
+  { name: '202609_北川様邸完成見学会',                  type: '完成見学会',   startDate: '2026-09-01' },
+  { name: '202609_中村様邸完成見学会（9月）',           type: '完成見学会',   startDate: '2026-09-01' },
+  { name: '202610_平屋見学会（10〜11月）',             type: '2ヶ月イベント', startDate: '2026-10-01' },
+  { name: '202610_2階建 見学会（10〜11月）',           type: '2ヶ月イベント', startDate: '2026-10-01' },
+  { name: '202610_パークイベント※浜北グランド記念（10月）', type: 'パークイベント', startDate: '2026-10-01' },
+  { name: '202610_竹内様邸期間限定モデルハウス（見学会がない月）', type: 'その他', startDate: '2026-10-01' },
+  { name: '202611_貴布祢（きぶね）平屋モデルハウスグランド（11月）', type: 'グランドオープン', startDate: '2026-11-07' },
+  { name: '202701_磐田 単独モデルハウス（2027/1予定）', type: 'グランドオープン', startDate: '2027-01-01' },
+  { name: '202608_ブランド認知（8月）',                              type: 'その他',         startDate: '2026-08-01' },
+  { name: '202704_貴布祢2階建て（2027年4月オープン）',              type: 'グランドオープン', startDate: '2027-04-01' },
+  { name: '202705_磐田展示場（事務所/2棟モデル）',                  type: 'グランドオープン', startDate: '2027-05-01' },
+  { name: '2028_藤枝パーク（2028年）',                              type: 'パークイベント',   startDate: '2028-01-01' },
+];
+
+const SEED_TASKS_NOEVENT = [
+  { name: 'スライダー入替',                        assignee: '田邉', dueDate: '2026-05-11', done: true },
+  { name: 'Googlemap配信',                         assignee: '栫井', dueDate: '2026-05-11', done: true },
+  { name: 'イエタテ配信',                          assignee: '栫井', dueDate: '2026-05-11', done: true },
+  { name: 'HP公開',                                assignee: '栫井', dueDate: '2026-05-11', done: true },
+  { name: 'IG広告入稿',                            assignee: '田邉', dueDate: '2026-05-11', done: true },
+  { name: 'web広告：標準仕様 動画広告',            assignee: '田邉', dueDate: '2026-05-15', done: true },
+  { name: '中村様 施工事例（イエタテ）',           assignee: '栫井', dueDate: '2026-05-31', done: true },
+  { name: '中村様 施工事例（HP）',                 assignee: '田邉', dueDate: '2026-05-31', done: true },
+  { name: 'メタ広告動画：PGで生活費が軽くなった', assignee: '栗原', dueDate: '2026-05-31', done: true },
+  { name: 'メタ広告動画：youtube切り抜き広告①',   assignee: '栗原', dueDate: '2026-05-31', done: true },
+  { name: 'イエタテリール',                        assignee: '栫井', dueDate: '2026-06-15', done: true },
+  { name: 'IG広告入稿',                            assignee: '田邉', dueDate: '2026-06-19', done: true },
+  { name: 'HP公開',                                assignee: '田邉', dueDate: '2026-06-19', done: true },
+  { name: 'DM納品',                                assignee: '田邉', dueDate: '2026-06-19', done: true },
+  { name: 'Googlemap配信',                         assignee: '栫井', dueDate: '2026-06-19', done: true },
+  { name: 'トップ画像',                            assignee: '田邉', dueDate: '2026-06-19', done: true },
+  { name: 'A4チラシ',                              assignee: '田邉', dueDate: '2026-06-19', done: true },
+  { name: 'スライダー入替',                        assignee: '田邉', dueDate: '2026-06-19', done: true },
+  { name: 'イエタテ配信',                          assignee: '栫井', dueDate: '2026-06-19', done: true },
+  { name: '印刷物：施工事例集',                    assignee: '田邉', dueDate: '2026-06-26', done: false },
+  { name: 'メタ広告動画：この家、月々3万円台な',   assignee: '栗原', dueDate: '2026-06-29', done: true },
+  { name: 'スタッフ紹介追加（岡村、永井）酒井',   assignee: '田邉', dueDate: '2026-06-30', done: true },
+  { name: 'イエタテランキングバナー差し替え',      assignee: '田邉', dueDate: '2026-06-30', done: true },
+  { name: 'この家、月々3万円台なんです（アフレ）', assignee: '栗原', dueDate: '2026-06-30', done: true },
+  { name: '店舗・モデルハウス',                    assignee: '栫井', dueDate: '2026-07-10', done: true },
+];
+
+// イベント別タスク（Notionから移行）
+const SEED_EVENT_TASKS = [
+  { eventName: 'ブランド認知（6月）', tasks: [
+    { name: 'IG広告入稿', assignee: '田邉', dueDate: '2026-08-20', done: true },
+  ]},
+  { eventName: 'パークイベント※気軽な感じ※1ヶ月（7月）', tasks: [
+    { name: 'イエタテWEB',    assignee: '栫井', dueDate: '2026-06-19', done: true },
+    { name: 'GoogleMap',      assignee: '栫井', dueDate: '2026-06-19', done: true },
+    { name: 'トップ画像',     assignee: '田邉', dueDate: '2026-06-19', done: true },
+    { name: 'A4チラシ',       assignee: '田邉', dueDate: '2026-06-19', done: true },
+    { name: 'HP公開',         assignee: '田邉', dueDate: '2026-06-19', done: true },
+    { name: 'スライダー入替', assignee: '栫井', dueDate: '2026-06-19', done: true },
+  ]},
+  { eventName: '202608_パークイベント※気軽な感じ※1ヶ月', tasks: [
+    { name: 'GoogleMap',      assignee: '田邉', dueDate: '2026-07-17', done: false },
+    { name: 'イエタテWEB',    assignee: '栫井', dueDate: '2026-07-17', done: false },
+    { name: 'トップ画像',     assignee: '田邉', dueDate: '2026-07-17', done: false },
+    { name: 'A4チラシ完版',   assignee: '田邉', dueDate: '2026-07-17', done: false },
+    { name: 'スライダー更新', assignee: '田邉', dueDate: '2026-07-17', done: false },
+    { name: 'HP公開',         assignee: '田邉', dueDate: '2026-07-17', done: false },
+  ]},
+  { eventName: '202609_中村様邸完成見学会（9月）', tasks: [
+    { name: 'Googlemap配信',  assignee: '栫井', dueDate: '2026-07-12', done: false },
+    { name: 'HP公開',         assignee: '田邉', dueDate: '2026-07-12', done: false },
+    { name: 'イエタテ配信',   assignee: '栫井', dueDate: '2026-07-12', done: false },
+    { name: 'A4チラシ',       assignee: '田邉', dueDate: '2026-07-12', done: false },
+    { name: 'スライダー入替', assignee: '田邉', dueDate: '2026-07-12', done: false },
+  ]},
+  { eventName: '202609_2棟　見比べ', tasks: [
+    { name: 'A4チラシ',       assignee: '田邉', dueDate: '2026-08-20', done: false },
+    { name: 'Googlemap配信',  assignee: '栫井', dueDate: '2026-08-20', done: false },
+    { name: 'イエタテ配信',   assignee: '栫井', dueDate: '2026-08-20', done: false },
+    { name: 'スライダー入替', assignee: '田邉', dueDate: '2026-08-20', done: false },
+    { name: 'HP公開',         assignee: '田邉', dueDate: '2026-08-20', done: false },
+    { name: 'IG広告入稿',     assignee: '田邉', dueDate: '2026-08-20', done: true  },
+  ]},
+  { eventName: '202609_パークイベント※浜北グランド記念（9月）', tasks: [
+    { name: 'イエタテ配信',   assignee: '栫井', dueDate: '2026-08-20', done: false },
+    { name: 'スライダー入替', assignee: '田邉', dueDate: '2026-08-20', done: false },
+    { name: 'HP公開',         assignee: '栫井', dueDate: '2026-08-20', done: false },
+    { name: 'A4チラシ',       assignee: '田邉', dueDate: '2026-08-20', done: false },
+    { name: 'IG広告入稿',     assignee: '田邉', dueDate: '2026-08-20', done: false },
+    { name: 'Googlemap配信',  assignee: '栫井', dueDate: '2026-08-20', done: false },
+    { name: 'その他制作物',   assignee: '',     dueDate: '',           done: false },
+  ]},
+  { eventName: '202607_アイスワールド', tasks: [
+    { name: 'メタ広告動画：アイスワールド行ってみた', assignee: '栗原', dueDate: '2026-05-31', done: false },
+  ]},
+  { eventName: '20260725-26_平松様邸見学会', tasks: [
+    { name: 'HP公開',         assignee: '栫井', dueDate: '2026-07-17', done: false, note: '担当は栫井・田邉の2名' },
+    { name: '広告バナー',     assignee: '田邉', dueDate: '2026-07-17', done: true  },
+    { name: 'GoogleMap',      assignee: '栫井', dueDate: '2026-07-17', done: true  },
+    { name: 'スライダー更新', assignee: '田邉', dueDate: '2026-07-17', done: true  },
+    { name: 'イエタテWEB',    assignee: '栫井', dueDate: '2026-07-17', done: true  },
+    { name: 'A4チラシ完版',   assignee: '田邉', dueDate: '2026-07-17', done: true  },
+  ]},
+  { eventName: '202608_平屋見学会（8〜9月）', tasks: [
+    { name: 'GoogleMap',      assignee: '栫井', dueDate: '2026-07-17', done: true  },
+    { name: 'HP公開',         assignee: '田邉', dueDate: '2026-07-17', done: true  },
+    { name: 'スライダー更新', assignee: '田邉', dueDate: '2026-07-17', done: true  },
+    { name: 'イエタテWEB',    assignee: '栫井', dueDate: '2026-07-17', done: true  },
+    { name: 'トップ画像',     assignee: '田邉', dueDate: '2026-07-17', done: true  },
+    { name: 'A4チラシ完版',   assignee: '田邉', dueDate: '2026-07-17', done: true  },
+  ]},
+  { eventName: '202608_2階建 見学会（8〜9月）', tasks: [
+    { name: 'A4チラシ完版',   assignee: '田邉', dueDate: '2026-07-17', done: false },
+    { name: 'HP公開',         assignee: '田邉', dueDate: '2026-07-17', done: false },
+    { name: 'スライダー更新', assignee: '田邉', dueDate: '2026-07-17', done: false },
+    { name: 'トップ画像',     assignee: '田邉', dueDate: '2026-07-17', done: false },
+    { name: 'GoogleMap',      assignee: '栫井', dueDate: '2026-07-17', done: false },
+    { name: 'イエタテWEB',    assignee: '栫井', dueDate: '2026-07-17', done: false },
+  ]},
+  { eventName: '202608_建売・賃貸の価格で家建てられます', tasks: [
+    { name: 'A4チラシ完版',   assignee: '田邉', dueDate: '2026-06-19', done: true  },
+    { name: 'スライダー更新', assignee: '田邉', dueDate: '2026-06-19', done: true  },
+    { name: 'HP公開',         assignee: '田邉', dueDate: '2026-07-17', done: false },
+    { name: 'イエタテWEB',    assignee: '栫井', dueDate: '2026-07-17', done: true  },
+    { name: 'トップ画像',     assignee: '田邉', dueDate: '2026-08-07', done: false },
+    { name: 'GoogleMap',      assignee: '栫井', dueDate: '2026-08-07', done: false },
+    { name: 'イエタテ配信',   assignee: '栫井', dueDate: '',           done: false },
+  ]},
+  { eventName: '202608_ブランド認知', tasks: [
+    { name: 'IG広告入稿',     assignee: '田邉', dueDate: '2026-08-20', done: true  },
+  ]},
+  { eventName: '202608_ブランド認知（8月）', tasks: [
+    { name: 'IG広告入稿',     assignee: '田邉', dueDate: '2026-08-20', done: true  },
+  ]},
+  { eventName: '202609_北川様邸完成見学会', tasks: [
+    { name: 'スライダー更新', assignee: '田邉', dueDate: '2026-08-07', done: false },
+    { name: 'HP公開',         assignee: '田邉', dueDate: '2026-08-07', done: false },
+    { name: 'イエタテWEB',    assignee: '栫井', dueDate: '2026-08-07', done: false },
+    { name: 'A4チラシ完版',   assignee: '田邉', dueDate: '2026-08-07', done: false },
+    { name: 'トップ画像',     assignee: '田邉', dueDate: '2026-08-07', done: false },
+    { name: 'GoogleMap',      assignee: '栫井', dueDate: '2026-08-07', done: false },
+  ]},
+  { eventName: '202609_ブランド認知（9月）', tasks: [
+    { name: 'IG広告入稿',     assignee: '田邉', dueDate: '2026-08-20', done: true  },
+  ]},
+  { eventName: '202609_イエタテ表（11月発行）', tasks: [
+    { name: 'DM納品',         assignee: '田邉', dueDate: '2026-08-20', done: false },
+    { name: 'A4チラシ',       assignee: '田邉', dueDate: '2026-08-20', done: false },
+    { name: 'イエタテ配信',   assignee: '栫井', dueDate: '2026-08-20', done: false },
+    { name: 'HP公開',         assignee: '栫井', dueDate: '2026-08-20', done: false, note: '担当は栫井・田邉の2名' },
+    { name: 'トップ画像',     assignee: '田邉', dueDate: '2026-08-20', done: false },
+    { name: 'IG広告入稿',     assignee: '田邉', dueDate: '2026-08-20', done: false },
+    { name: 'Googlemap配信',  assignee: '栫井', dueDate: '2026-08-20', done: false },
+    { name: 'スライダー入替', assignee: '田邉', dueDate: '2026-08-20', done: false },
+  ]},
+  { eventName: '202610_パークイベント※浜北グランド記念（10月）', tasks: [
+    { name: 'イエタテ配信',   assignee: '栫井', dueDate: '2026-08-20', done: false },
+    { name: 'スライダー入替', assignee: '田邉', dueDate: '2026-08-20', done: false },
+    { name: 'HP公開',         assignee: '栫井', dueDate: '2026-08-20', done: false },
+    { name: 'A4チラシ',       assignee: '田邉', dueDate: '2026-08-20', done: false },
+    { name: 'IG広告入稿',     assignee: '田邉', dueDate: '2026-08-20', done: false },
+    { name: 'Googlemap配信',  assignee: '栫井', dueDate: '2026-08-20', done: false },
+    { name: 'その他制作物',   assignee: '',     dueDate: '',           done: false },
+  ]},
+  { eventName: '202610_平屋見学会（10〜11月）', tasks: [
+    { name: 'GoogleMap',      assignee: '栫井', dueDate: '2026-07-17', done: true  },
+    { name: 'HP公開',         assignee: '田邉', dueDate: '2026-07-17', done: true  },
+    { name: 'スライダー更新', assignee: '田邉', dueDate: '2026-07-17', done: true  },
+    { name: 'イエタテWEB',    assignee: '栫井', dueDate: '2026-07-17', done: true  },
+    { name: 'トップ画像',     assignee: '田邉', dueDate: '2026-07-17', done: true  },
+    { name: 'A4チラシ完版',   assignee: '田邉', dueDate: '2026-07-17', done: true  },
+  ]},
+  { eventName: '202610_2階建 見学会（10〜11月）', tasks: [
+    { name: 'A4チラシ完版',   assignee: '田邉', dueDate: '2026-07-17', done: false },
+    { name: 'HP公開',         assignee: '田邉', dueDate: '2026-07-17', done: false },
+    { name: 'スライダー更新', assignee: '田邉', dueDate: '2026-07-17', done: false },
+    { name: 'トップ画像',     assignee: '田邉', dueDate: '2026-07-17', done: false },
+    { name: 'GoogleMap',      assignee: '栫井', dueDate: '2026-07-17', done: false },
+    { name: 'イエタテWEB',    assignee: '栫井', dueDate: '2026-07-17', done: false },
+  ]},
+  { eventName: '202611_貴布祢（きぶね）平屋モデルハウスグランド（11月）', tasks: [
+    { name: '図面集めて特徴まとめる',           assignee: '藤原', dueDate: '2026-07-31', done: false },
+    { name: '外観/内観　パース　確認',           assignee: '藤原', dueDate: '2026-07-31', done: false },
+    { name: 'LPタブ設定',                       assignee: '藤原', dueDate: '2026-09-04', done: false },
+    { name: 'モデルハウス　タイトル',            assignee: '藤原', dueDate: '2026-09-04', done: false },
+    { name: 'ページ構成案',                      assignee: '藤原', dueDate: '2026-09-11', done: false },
+    { name: 'HP公開（LP）',                      assignee: '藤原', dueDate: '2026-10-01', done: false, note: '10/1には公開したい' },
+    { name: 'HP公開（イベントページ）（既存向け）', assignee: '栫井', dueDate: '2026-10-01', done: false, note: '11/7プレの案内' },
+    { name: 'HP公開（イベントページ）',          assignee: '栫井', dueDate: '2026-10-01', done: false },
+    { name: 'DM既存',                            assignee: '田邉', dueDate: '2026-10-09', done: false, note: '11/7プレの案内' },
+    { name: 'DM新規',                            assignee: '田邉', dueDate: '2026-10-09', done: false, note: '11/14グランドの案内' },
+    { name: 'ボスティングチラシ',               assignee: '田邉', dueDate: '2026-10-14', done: false, note: '10/15入稿、10/20ボスティング' },
+    { name: 'HP販売ページ（イベントページ）',   assignee: '田邉', dueDate: '2026-10-16', done: false, note: 'グランド前には公開しておく' },
+    { name: '販売価格　確認',                    assignee: '藤原', dueDate: '2026-10-16', done: false },
+    { name: 'スライダー入替',                    assignee: '田邉', dueDate: '2026-10-20', done: false },
+    { name: 'A4チラシ',                          assignee: '田邉', dueDate: '2026-10-20', done: false },
+    { name: 'イエタテ配信',                      assignee: '栫井', dueDate: '2026-10-20', done: false },
+    { name: 'Googlemap配信',                     assignee: '栫井', dueDate: '2026-10-20', done: false },
+    { name: '販売パネル（モデル設置）',          assignee: '田邉', dueDate: '2026-10-29', done: false, note: 'グランド前には現地設置' },
+  ]},
+  { eventName: '202704_貴布祢2階建て（2027年4月オープン）', tasks: [
+    { name: 'HP公開',         assignee: '栫井', dueDate: '2026-07-17', done: false, note: '担当は栫井・田邉の2名' },
+    { name: 'イエタテ配信',   assignee: '栫井', dueDate: '2027-03-19', done: false },
+    { name: 'A4チラシ',       assignee: '田邉', dueDate: '2027-03-19', done: false },
+    { name: 'トップ画像',     assignee: '田邉', dueDate: '2027-03-19', done: false },
+    { name: 'IG広告入稿',     assignee: '田邉', dueDate: '2027-03-19', done: false },
+    { name: 'DM納品',         assignee: '田邉', dueDate: '2027-03-19', done: false },
+  ]},
+  { eventName: '202705_磐田展示場（事務所/2棟モデル）', tasks: [
+    { name: 'イエタテ配信',   assignee: '栫井', dueDate: '', done: false },
+    { name: 'Googlemap配信',  assignee: '栫井', dueDate: '', done: false },
+    { name: 'スライダー入替', assignee: '田邉', dueDate: '', done: false },
+    { name: 'HP公開',         assignee: '栫井', dueDate: '', done: false },
+    { name: 'A4チラシ',       assignee: '田邉', dueDate: '', done: false },
+    { name: 'その他制作物',   assignee: '',     dueDate: '', done: false },
+  ]},
+  { eventName: '2028_藤枝パーク（2028年）', tasks: [
+    { name: 'その他制作物',   assignee: '',     dueDate: '', done: false },
+    { name: 'イエタテ配信',   assignee: '栫井', dueDate: '', done: false },
+    { name: 'スライダー入替', assignee: '田邉', dueDate: '', done: false },
+    { name: 'HP公開',         assignee: '栫井', dueDate: '', done: false },
+    { name: 'Googlemap配信',  assignee: '栫井', dueDate: '', done: false },
+    { name: 'A4チラシ',       assignee: '田邉', dueDate: '', done: false },
+  ]},
+  { eventName: '202701_磐田 単独モデルハウス（2027/1予定）', tasks: [
+    { name: 'LPタブ設定',                             assignee: '藤原', dueDate: '2026-09-04', done: false },
+    { name: 'モデルハウス タイトル',                   assignee: '藤原', dueDate: '2026-09-04', done: false },
+    { name: '図面集めて特徴まとめる',                 assignee: '藤原', dueDate: '2026-10-01', done: false },
+    { name: '外観/内観 パース 確認',                  assignee: '藤原', dueDate: '2026-10-01', done: false },
+    { name: 'HP公開（LP）',                           assignee: '藤原', dueDate: '2026-10-01', done: false, note: '10/1には公開したい' },
+    { name: 'HP公開（イベントページ）',               assignee: '栫井', dueDate: '2026-10-01', done: false },
+    { name: 'ボスティングチラシ',                     assignee: '田邉', dueDate: '2026-10-14', done: false, note: '10/15入稿、10/20ポスティング' },
+    { name: 'HP販売ページ（イベントページ）',         assignee: '田邉', dueDate: '2026-10-16', done: false, note: 'グランド前には公開しておく' },
+    { name: '販売価格 確認',                          assignee: '藤原', dueDate: '2026-10-16', done: false },
+    { name: 'スライダー入替',                         assignee: '田邉', dueDate: '2026-10-20', done: false },
+    { name: 'A4チラシ',                               assignee: '田邉', dueDate: '2026-10-20', done: false },
+    { name: 'イエタテ配信',                           assignee: '栫井', dueDate: '2026-10-20', done: false },
+    { name: 'Googlemap配信',                          assignee: '栫井', dueDate: '2026-10-20', done: false },
+    { name: 'ページ構成案',                           assignee: '藤原', dueDate: '2026-11-20', done: false },
+    { name: 'HP公開（イベントページ）（既存向け）',   assignee: '田邉', dueDate: '2026-12-21', done: false, note: '11/7プレの案内' },
+    { name: 'DM既存',                                 assignee: '田邉', dueDate: '2026-12-22', done: false, note: '11/7プレの案内' },
+    { name: 'DM新規',                                 assignee: '田邉', dueDate: '2026-12-22', done: false, note: '11/14グランドの案内' },
+    { name: '販売パネル（モデル設置）',               assignee: '田邉', dueDate: '2027-01-15', done: false, note: 'グランド前には現地設置' },
+    { name: 'A4チラシ（グランド用）',                 assignee: '田邉', dueDate: '',           done: false },
+    { name: 'Googlemap配信（グランド用）',            assignee: '栫井', dueDate: '',           done: false },
+    { name: 'スライダー入替（グランド用）',           assignee: '田邉', dueDate: '',           done: false },
+    { name: 'イエタテ配信（グランド用）',             assignee: '栫井', dueDate: '',           done: false },
+    { name: 'HP公開（グランド用）',                   assignee: '栫井', dueDate: '',           done: false },
+    { name: 'その他制作物',                           assignee: '',     dueDate: '',           done: false },
+  ]},
+];
+
+function loadSeed() {
+  let changed = false;
+  // イベントは名前で重複チェックしながら追加（あとから増やせるように）
+  SEED_EVENTS.forEach(ev => {
+    if (!DB.events.find(e => e.name === ev.name)) {
+      DB.events.push({ id: DB.nextEv++, name: ev.name, type: ev.type, startDate: ev.startDate });
+      changed = true;
+    }
+  });
+  // イベントなしタスクは一度だけ
+  if (DB.tasks.filter(t => !t.eventId && !t.isRoutine).length === 0) {
+    SEED_TASKS_NOEVENT.forEach(t => {
+      DB.tasks.push({ id: DB.nextTask++, eventId: null, name: t.name, assignee: t.assignee, dueDate: t.dueDate, done: t.done, note: '', isRoutine: false });
+    });
+    changed = true;
+  }
+  if (changed) { save(); saveCountersFB(); }
+}
+
+function loadSeedEventTasks() {
+  if (DB.eventTasksSeeded) return;
+  let changed = false;
+  SEED_EVENT_TASKS.forEach(({ eventName, tasks }) => {
+    const ev = DB.events.find(e => e.name === eventName);
+    if (!ev) return;
+    if (DB.tasks.some(t => t.eventId === ev.id)) return;
+    tasks.forEach(t => {
+      DB.tasks.push({ id: DB.nextTask++, eventId: ev.id, name: t.name, assignee: t.assignee||'', dueDate: t.dueDate||'', done: t.done||false, note: t.note||'', isRoutine: false });
+    });
+    changed = true;
+  });
+  if (changed) { DB.eventTasksSeeded = true; save(); saveCountersFB(); }
+}
+
+// ================================================================
+// TEMPLATES VIEW
+// ================================================================
+function ensureDBTemplates() {
+  if (!DB.templates) {
+    DB.templates = JSON.parse(JSON.stringify(TEMPLATES));
+  }
+}
+
+function getTemplatesForType(type) {
+  if (DB.templates && DB.templates[type]) return DB.templates[type];
+  return TEMPLATES[type] || [];
+}
+
+let expandedTemplateTypes = new Set();
+
+function toggleTemplateType(type) {
+  if (expandedTemplateTypes.has(type)) expandedTemplateTypes.delete(type);
+  else expandedTemplateTypes.add(type);
+  renderTemplatesView();
+}
+
+function tmplTimingLabel(t) {
+  if (t.daysBeforeEvent) return `開催${t.daysBeforeEvent}日前`;
+  if (t.dateType === 'pm20') return '前月20日';
+  if (t.dateType === 'manual') return '手入力';
+  return '—';
+}
+
+function addEventType() {
+  const name = prompt('追加するイベント種別名を入力してください');
+  if (!name || !name.trim()) return;
+  const n = name.trim();
+  if (getProjectEventTypes().includes(n)) { alert('すでに登録されています'); return; }
+  if (currentProject === 'souzoku') {
+    if (!DB.souzokuEventTypes) DB.souzokuEventTypes = ['セミナー','個別相談会','勉強会','その他'];
+    DB.souzokuEventTypes.push(n);
+    ensureSouzokuTemplates();
+    DB.souzokuTemplates[n] = [];
+    save(); saveMetaFB();
+    fbDb.ref(FB_REF + '/souzokuTemplates').set(DB.souzokuTemplates || null);
+  } else if (currentProject === 'arrch') {
+    if (!DB.arrchEventTypes) DB.arrchEventTypes = ['完成見学会','引渡し会','展示会','その他'];
+    DB.arrchEventTypes.push(n);
+    ensureArrchTemplates();
+    DB.arrchTemplates[n] = [];
+    save(); saveMetaFB();
+    fbDb.ref(FB_REF + '/arrchTemplates').set(DB.arrchTemplates || null);
+  } else {
+    if (!DB.eventTypes) DB.eventTypes = getEventTypes().slice();
+    DB.eventTypes.push(n);
+    ensureDBTemplates();
+    DB.templates[n] = [];
+    save(); saveMetaFB(); saveTemplatesFB();
+  }
+  renderTemplatesView();
+  fillEventTypeSelect('ev-type', '');
+}
+
+function ensureSouzokuTemplates() {
+  if (!DB.souzokuTemplates) DB.souzokuTemplates = {};
+  (DB.souzokuEventTypes || ['セミナー','個別相談会','勉強会','その他']).forEach(type => {
+    if (!DB.souzokuTemplates[type]) DB.souzokuTemplates[type] = [];
+  });
+}
+
+function ensureArrchTemplates() {
+  if (!DB.arrchTemplates) DB.arrchTemplates = {};
+  (DB.arrchEventTypes || ['完成見学会','引渡し会','展示会','その他']).forEach(type => {
+    if (!DB.arrchTemplates[type]) DB.arrchTemplates[type] = [];
+  });
+}
+
+function saveProjectTemplatesFB() {
+  if (currentProject === 'souzoku') {
+    setSyncSaving();
+    fbDb.ref(FB_REF + '/souzokuTemplates').set(DB.souzokuTemplates || null).then(setSyncDone).catch(() => setSyncStatus('err', '同期エラー'));
+  } else if (currentProject === 'arrch') {
+    setSyncSaving();
+    fbDb.ref(FB_REF + '/arrchTemplates').set(DB.arrchTemplates || null).then(setSyncDone).catch(() => setSyncStatus('err', '同期エラー'));
+  } else {
+    saveTemplatesFB();
+  }
+}
+
+function renderTemplatesView() {
+  if (currentProject === 'souzoku') { ensureSouzokuTemplates(); }
+  else if (currentProject === 'arrch') { ensureArrchTemplates(); }
+  else { ensureDBTemplates(); }
+  const c = document.getElementById('template-container');
+  if (!c) return;
+  const types = getProjectEventTypes();
+  c.innerHTML = types.map(type => {
+    const tasks = getProjectTemplatesForType(type);
+    const isOpen = expandedTemplateTypes.has(type);
+    const body = isOpen ? `
+      <div class="task-list">
+        ${tasks.length === 0
+          ? '<div style="padding:12px 16px;color:#ccc;font-size:13px">タスクがありません</div>'
+          : tasks.map((t, idx) => `
+          <div class="tmpl-edit-row">
+            ${t.color ? `<span class="task-color-dot tc-${t.color}" title="${t.color}" style="margin-right:4px"></span>` : ''}
+            <span class="task-name-cell" style="flex:1">${t.name}</span>
+            <span class="tmpl-timing-badge">${tmplTimingLabel(t)}</span>
+            ${t.assignee ? `<span class="assignee-tag a-${t.assignee}">${t.assignee}</span>` : '<span style="color:#aaa;font-size:12px;flex-shrink:0">未設定</span>'}
+            <button class="icon-btn" onclick="showEditTemplateTaskModal('${type}',${idx})" title="編集">✏️</button>
+            <button class="icon-btn" onclick="deleteTemplateTask('${type}',${idx})" title="削除">🗑️</button>
+          </div>`).join('')
+        }
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 16px;border-top:1px solid #f0f0f0">
+          <button class="add-task-link" onclick="showAddTemplateTaskModal('${type}')">＋ タスクを追加</button>
+          ${currentProject === 'pg' ? `<button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="resetTemplateType('${type}')">初期値に戻す</button>` : ''}
+        </div>
+      </div>` : '';
+    return `
+      <div class="tmpl-type-card">
+        <div class="tmpl-type-header" onclick="toggleTemplateType('${type}')">
+          ${typeBadgeHTML(type)}
+          <span class="tmpl-type-name">${type}</span>
+          <span class="tmpl-type-count">${tasks.length}タスク</span>
+          <button class="icon-btn" style="font-size:15px;padding:2px 4px" onclick="event.stopPropagation();showTypeColorPicker('${type}',this)" title="色を変更">🎨</button>
+          <span class="chevron${isOpen?' open':''}">▼</span>
+        </div>
+        ${body}
+      </div>`;
+  }).join('');
+}
+
+function getEditingTemplateStore() {
+  if (currentProject === 'souzoku') { ensureSouzokuTemplates(); return DB.souzokuTemplates; }
+  if (currentProject === 'arrch') { ensureArrchTemplates(); return DB.arrchTemplates; }
+  ensureDBTemplates(); return DB.templates;
+}
+
+function showAddTemplateTaskModal(type) {
+  document.getElementById('tt-type').value = type;
+  document.getElementById('tt-idx').value = '-1';
+  document.getElementById('tt-name').value = '';
+  fillAssigneeSelect('tt-assignee', '');
+  document.getElementById('tt-timing').value = 'pm20';
+  document.getElementById('tt-days').value = '21';
+  document.getElementById('tt-days-wrap').classList.add('hidden');
+  document.getElementById('tt-color').value = '';
+  document.getElementById('tmpl-task-title').textContent = `テンプレートタスク追加（${type}）`;
+  openModal('modal-tmpl-task');
+}
+
+function showEditTemplateTaskModal(type, idx) {
+  const store = getEditingTemplateStore();
+  if (!store[type]) store[type] = [];
+  const t = store[type][idx];
+  if (!t) return;
+  document.getElementById('tt-type').value = type;
+  document.getElementById('tt-idx').value = idx;
+  document.getElementById('tt-name').value = t.name;
+  fillAssigneeSelect('tt-assignee', t.assignee||'');
+  let timing = 'pm20';
+  if (t.daysBeforeEvent) timing = 'days';
+  else if (t.dateType === 'manual') timing = 'manual';
+  document.getElementById('tt-timing').value = timing;
+  document.getElementById('tt-days').value = t.daysBeforeEvent || 21;
+  document.getElementById('tt-days-wrap').classList.toggle('hidden', timing !== 'days');
+  document.getElementById('tt-color').value = t.color || '';
+  document.getElementById('tmpl-task-title').textContent = `テンプレートタスク編集（${type}）`;
+  openModal('modal-tmpl-task');
+}
+
+function onTmplTimingChange() {
+  const timing = document.getElementById('tt-timing').value;
+  document.getElementById('tt-days-wrap').classList.toggle('hidden', timing !== 'days');
+}
+
+function doSaveTemplateTask() {
+  const name = document.getElementById('tt-name').value.trim();
+  if (!name) { alert('タスク名を入力してください'); return; }
+  ensureDBTemplates();
+  const type = document.getElementById('tt-type').value;
+  const idx = parseInt(document.getElementById('tt-idx').value);
+  const assignee = document.getElementById('tt-assignee').value;
+  const timing = document.getElementById('tt-timing').value;
+  const days = parseInt(document.getElementById('tt-days').value) || 21;
+
+  const color = document.getElementById('tt-color').value;
+  const task = { name, assignee };
+  if (timing === 'pm20') task.dateType = 'pm20';
+  else if (timing === 'manual') task.dateType = 'manual';
+  else task.daysBeforeEvent = days;
+  if (color) task.color = color;
+
+  const store = getEditingTemplateStore();
+  if (!store[type]) store[type] = [];
+  if (idx === -1) store[type].push(task);
+  else store[type][idx] = task;
+
+  save(); saveProjectTemplatesFB();
+  closeModal('modal-tmpl-task');
+  renderTemplatesView();
+}
+
+function deleteTemplateTask(type, idx) {
+  if (!confirm('このテンプレートタスクを削除しますか？')) return;
+  const store = getEditingTemplateStore();
+  if (!store[type]) return;
+  store[type].splice(idx, 1);
+  save(); saveProjectTemplatesFB();
+  renderTemplatesView();
+}
+
+function resetTemplateType(type) {
+  if (!confirm(`「${type}」のテンプレートをデフォルトに戻しますか？`)) return;
+  ensureDBTemplates();
+  DB.templates[type] = JSON.parse(JSON.stringify(TEMPLATES[type] || []));
+  save(); saveTemplatesFB();
+  renderTemplatesView();
+}
+
+// ================================================================
+// INIT
+// ================================================================
+load();
+loadSeed();
+loadSeedEventTasks();
+renderEventsView();
+renderAssigneeFilters();
+renderPersonalFilters();
+</script>
+</body>
+</html>
