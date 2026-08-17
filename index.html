@@ -1040,10 +1040,16 @@ function fbDataToDB(raw) {
     if (Array.isArray(v)) return v.filter(Boolean); // 旧フォーマット互換（nullエントリ除去）
     return Object.values(v).filter(Boolean);
   };
+  // IDで重複排除（新しい方を優先）
+  const dedupeById = (arr) => {
+    const map = new Map();
+    arr.forEach(x => { if (x && x.id != null) map.set(x.id, x); });
+    return Array.from(map.values());
+  };
   const meta = raw.meta || {};
   return {
-    events:   toArr(raw.events),
-    tasks:    toArr(raw.tasks),
+    events:   dedupeById(toArr(raw.events)),
+    tasks:    dedupeById(toArr(raw.tasks)),
     routines: toArr(raw.routines),
     assignees:            meta.assignees            || raw.assignees            || DB.assignees,
     eventTypes:           meta.eventTypes           || raw.eventTypes           || DB.eventTypes,
@@ -2028,7 +2034,11 @@ function doSaveEvent() {
   ev.title = document.getElementById('ee-title').value.trim();
   ev.docUrl = document.getElementById('ee-docurl').value.trim();
   ev.note = document.getElementById('ee-note').value.trim();
-  save(); saveEventFB(ev); closeModal('modal-edit-event'); renderEventsView();
+  save(); saveEventFB(ev); closeModal('modal-edit-event');
+  renderEventsView();
+  // 編集後3秒間はFirebaseリスナーによる上書きをブロック
+  _saveCount++; isSavingToFB = true;
+  setTimeout(() => { _saveCount = Math.max(0, _saveCount - 1); if (_saveCount === 0) isSavingToFB = false; }, 3000);
 }
 
 function doDeleteEvent() {
