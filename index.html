@@ -1076,13 +1076,31 @@ function fbDataToDB(raw) {
   };
 }
 
-// ローカルで最近変更したタスクIDを記録（リスナーによる上書き防止）
-const _localTaskSnapshot = new Map(); // id → taskオブジェクト
+// ローカルで最近変更したアイテムを記録（リスナーによる上書き防止）
+const _localEvSnapshot   = new Map(); // evId → eventオブジェクト
+const _localTaskSnapshot = new Map(); // taskId → taskオブジェクト
+const _deletedEvIds      = new Set(); // 削除済みイベントID（Firebase復活防止）
+const _deletedTaskIds    = new Set(); // 削除済みタスクID
 
 function saveTaskFB_withSnapshot(task) {
   _localTaskSnapshot.set(task.id, JSON.parse(JSON.stringify(task)));
-  setTimeout(() => _localTaskSnapshot.delete(task.id), 8000); // 8秒後にクリア
+  setTimeout(() => _localTaskSnapshot.delete(task.id), 10000);
   saveTaskFB(task);
+}
+function saveEventFB_withSnapshot(ev) {
+  _localEvSnapshot.set(ev.id, JSON.parse(JSON.stringify(ev)));
+  setTimeout(() => _localEvSnapshot.delete(ev.id), 10000);
+  saveEventFB(ev);
+}
+function deleteEventFB_tracked(id) {
+  _deletedEvIds.add(id);
+  setTimeout(() => _deletedEvIds.delete(id), 30000); // 30秒保持
+  deleteEventFB(id);
+}
+function deleteTaskFB_tracked(id) {
+  _deletedTaskIds.add(id);
+  setTimeout(() => _deletedTaskIds.delete(id), 30000);
+  deleteTaskFB(id);
 }
 
 // リアルタイムリスナー（他のユーザーの変更を即時反映）
@@ -1093,12 +1111,12 @@ fbDb.ref(FB_REF).on('value', (snapshot) => {
   const newDB = fbDataToDB(raw);
   if (!newDB.events || newDB.events.length === 0) return;
   fbInitialized = true; // Firebase初期ロード完了
-  // ローカルで最近変更したタスクはFirebase側の古いデータで上書きしない
-  if (_localTaskSnapshot.size > 0) {
-    newDB.tasks = newDB.tasks.map(t =>
-      _localTaskSnapshot.has(t.id) ? _localTaskSnapshot.get(t.id) : t
-    );
-  }
+  // 削除済みIDをFirebaseデータから除外（復活防止）
+  newDB.events = newDB.events.filter(e => !_deletedEvIds.has(e.id));
+  newDB.tasks  = newDB.tasks.filter(t  => !_deletedTaskIds.has(t.id));
+  // ローカルで最近変更したアイテムはFirebase側の古いデータで上書きしない
+  newDB.events = newDB.events.map(e => _localEvSnapshot.has(e.id)   ? _localEvSnapshot.get(e.id)   : e);
+  newDB.tasks  = newDB.tasks.map(t  => _localTaskSnapshot.has(t.id) ? _localTaskSnapshot.get(t.id) : t);
   DB = { ...DB, ...newDB };
   const migrated = migrateDB();
   localStorage.setItem('pg-ev-db', JSON.stringify(DB));
@@ -2056,11 +2074,8 @@ function doSaveEvent() {
   ev.title = document.getElementById('ee-title').value.trim();
   ev.docUrl = document.getElementById('ee-docurl').value.trim();
   ev.note = document.getElementById('ee-note').value.trim();
-  save(); saveEventFB(ev); closeModal('modal-edit-event');
+  save(); saveEventFB_withSnapshot(ev); closeModal('modal-edit-event');
   renderEventsView();
-  // 編集後3秒間はFirebaseリスナーによる上書きをブロック
-  _saveCount++; isSavingToFB = true;
-  setTimeout(() => { _saveCount = Math.max(0, _saveCount - 1); if (_saveCount === 0) isSavingToFB = false; }, 3000);
 }
 
 function doDeleteEvent() {
@@ -2070,10 +2085,7 @@ function doDeleteEvent() {
   DB.events = DB.events.filter(e=>e.id!==id);
   DB.tasks = DB.tasks.filter(t=>t.eventId!==id);
   expandedEvents.delete(id);
-  save(); deleteEventFB(id); deletedTaskIds.forEach(tid => deleteTaskFB(tid)); closeModal('modal-edit-event'); renderEventsView();
-  // 削除後5秒間はFirebaseリスナーによる復活をブロック
-  _saveCount++; isSavingToFB = true;
-  setTimeout(() => { _saveCount = Math.max(0, _saveCount - 1); if (_saveCount === 0) isSavingToFB = false; }, 5000);
+  save(); deleteEventFB_tracked(id); deletedTaskIds.forEach(tid => deleteTaskFB_tracked(tid)); closeModal('modal-edit-event'); renderEventsView();
 }
 
 // ================================================================
@@ -2234,7 +2246,7 @@ function toggleTask(id, view) {
 function deleteTask(id) {
   if (!confirm('このタスクを削除しますか？')) return;
   DB.tasks = DB.tasks.filter(t=>t.id!==id);
-  save(); deleteTaskFB(id);
+  save(); deleteTaskFB_tracked(id);
   if (currentView==='events') renderEventsView();
   else if (currentView==='assignee') renderAssigneeView();
   else if (currentView==='personal') renderPersonalView();
