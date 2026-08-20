@@ -238,6 +238,14 @@ body { font-family: 'Helvetica Neue', Arial, 'Hiragino Sans', 'Yu Gothic', sans-
 .type-color-clear { font-size: 11px; width: 100%; text-align: center; color: #888; cursor: pointer; padding: 2px 0; }
 .type-color-clear:hover { color: #e05a00; }
 
+/* 新規追加ハイライトアニメーション */
+@keyframes newlyAdded {
+  0%   { background: #fff3cd; box-shadow: 0 0 0 2px #f0a500; }
+  70%  { background: #fff9e6; box-shadow: 0 0 0 1px #f0c040; }
+  100% { background: transparent; box-shadow: none; }
+}
+.newly-added { animation: newlyAdded 3s ease-out forwards; }
+
 /* EVENT INFO PANEL */
 .ev-info-panel { padding: 10px 16px; background: #f8f8f6; border-bottom: 1px solid #eee; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; align-items: baseline; }
 .ev-info-label { font-size: 11px; font-weight: 700; color: #aaa; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
@@ -741,8 +749,7 @@ firebase.initializeApp(FB_CONFIG);
 const fbDb = firebase.database();
 const FB_REF = 'pg-tasks';
 
-// オフライン永続化（WebSocket切断時のデータ消失を防ぐ）
-try { fbDb.setPersistenceEnabled(true); } catch(e) {}
+// ※ setPersistenceEnabled は削除済みデータ復活の原因になるため使用しない
 
 let isSavingToFB = false;
 let _saveCount = 0;  // 同時保存数カウンター（競合防止）
@@ -1239,6 +1246,19 @@ let expandedDetails = new Set();
 let assigneeFilter = new Set(); // 空=全員、要素あり=その担当者のみ
 let dragSrcEvId = null;
 let dragSrcTaskId = null;
+
+// 新規追加ハイライト管理
+const _newlyAddedEvIds   = new Set();
+const _newlyAddedTaskIds = new Set();
+function markNewlyAdded(evIds=[], taskIds=[]) {
+  evIds.forEach(id   => _newlyAddedEvIds.add(id));
+  taskIds.forEach(id => _newlyAddedTaskIds.add(id));
+  // 5秒後にクリア（アニメーション終了後）
+  setTimeout(() => {
+    evIds.forEach(id   => _newlyAddedEvIds.delete(id));
+    taskIds.forEach(id => _newlyAddedTaskIds.delete(id));
+  }, 5000);
+}
 let inlineEditId = null;  // インライン編集中のタスクID
 let inlineNewCtx = null;  // { eventId, assignee, isPersonal } 新規インライン追加コンテキスト
 
@@ -1475,7 +1495,7 @@ function eventCardHTML(ev) {
   const allDone = ev.archived || (tasks.length > 0 && tasks.every(t => t.done));
 
   let html = `
-  <div class="event-card${hasOv?' has-overdue':''}${allDone?' all-done':''}" id="ec-${ev.id}"
+  <div class="event-card${hasOv?' has-overdue':''}${allDone?' all-done':''}${_newlyAddedEvIds.has(ev.id)?' newly-added':''}" id="ec-${ev.id}"
     draggable="true"
     ondragstart="onEvDragStart(event,${ev.id})"
     ondragover="onEvDragOver(event,${ev.id})"
@@ -1532,7 +1552,7 @@ function taskRowHTML(task, view) {
   if (task.id === inlineEditId) return inlineRowHTML(task);
   const ov = !task.done && isOverdue(task.dueDate);
   return `
-  <div class="task-row${ov?' is-overdue':''}${task.done?' task-done-row':''}">
+  <div class="task-row${ov?' is-overdue':''}${task.done?' task-done-row':''}${_newlyAddedTaskIds.has(task.id)?' newly-added':''}">
     <input type="checkbox" class="task-check" ${task.done?'checked':''} onchange="toggleTask(${task.id},'${view}')">
     <span class="task-name-cell${task.done?' done':''}" style="cursor:pointer" onclick="startInlineEdit(${task.id})">
       ${task.name}${task.note?`<span class="task-note-inline">— ${task.note}</span>`:''}
@@ -2007,6 +2027,8 @@ function doAddEvent() {
   });
 
   expandedEvents.add(evId);
+  const newTaskIds = DB.tasks.filter(t => t.eventId === evId).map(t => t.id);
+  markNewlyAdded([evId], newTaskIds);
   save(); saveEventFB(newEv); saveMetaFB(); closeModal('modal-add-event');
   renderEventsView();
 }
@@ -2049,6 +2071,9 @@ function doDeleteEvent() {
   DB.tasks = DB.tasks.filter(t=>t.eventId!==id);
   expandedEvents.delete(id);
   save(); deleteEventFB(id); deletedTaskIds.forEach(tid => deleteTaskFB(tid)); closeModal('modal-edit-event'); renderEventsView();
+  // 削除後5秒間はFirebaseリスナーによる復活をブロック
+  _saveCount++; isSavingToFB = true;
+  setTimeout(() => { _saveCount = Math.max(0, _saveCount - 1); if (_saveCount === 0) isSavingToFB = false; }, 5000);
 }
 
 // ================================================================
@@ -2230,15 +2255,39 @@ function duplicateTask(id) {
 function duplicateEvent(id) {
   const src = DB.events.find(e => e.id === id);
   if (!src) return;
-  const newEv = { ...src, id: DB.nextEv++, name: src.name + '（コピー）' };
+
+  // 新しい開催日を入力してもらう
+  const newDate = prompt(
+    `「${src.name}」を複製します。\n新しい開催日を入力してください（例: 2026-11-01）\n空欄のままOKを押すと元の日付をコピーします。`,
+    src.startDate || ''
+  );
+  if (newDate === null) return; // キャンセル
+
+  const newEv = { ...src, id: DB.nextEv++, name: src.name + '（コピー）', startDate: newDate || src.startDate };
   DB.events.push(newEv);
+
   const srcTasks = DB.tasks.filter(t => t.eventId === id);
   srcTasks.forEach(t => {
-    const copy = { ...t, id: DB.nextTask++, eventId: newEv.id, done: false };
+    let newDueDate = t.dueDate;
+    // 元の開催日と新開催日が両方あればオフセットを計算して再設定
+    if (newDate && src.startDate && t.dueDate) {
+      const srcStart = new Date(src.startDate);
+      const newStart = new Date(newDate);
+      const taskDue  = new Date(t.dueDate);
+      const offsetDays = Math.round((taskDue - srcStart) / 86400000); // 元イベントからの相対日数
+      const shifted = new Date(newStart);
+      shifted.setDate(shifted.getDate() + offsetDays);
+      newDueDate = shifted.toISOString().slice(0, 10);
+    }
+    const copy = { ...t, id: DB.nextTask++, eventId: newEv.id, done: false, dueDate: newDueDate };
     DB.tasks.push(copy);
     saveTaskFB(copy);
   });
+
+  const copiedTaskIds = DB.tasks.filter(t => t.eventId === newEv.id).map(t => t.id);
+  markNewlyAdded([newEv.id], copiedTaskIds);
   save(); saveEventFB(newEv); saveMetaFB();
+  expandedEvents.add(newEv.id);
   renderEventsView();
 }
 
@@ -2297,6 +2346,7 @@ function saveInlineEdit() {
     DB.tasks.push(newTask);
     if (!DB.taskOrder) DB.taskOrder = [];
     DB.taskOrder.push(newTask.id);
+    markNewlyAdded([], [newTask.id]);
     save(); saveTaskFB(newTask); saveMetaFB();
     // 連続入力: 新規行は開いたまま
     rerenderCurrentView();
