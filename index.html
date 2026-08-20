@@ -781,27 +781,27 @@ function setSyncDone() {
 
 function saveTaskFB(task) {
   setSyncSaving();
-  fbDb.ref(FB_REF + '/tasks/' + task.id).set(task).then(setSyncDone).catch(() => setSyncStatus('err', '同期エラー'));
+  fbDb.ref(FB_REF + '/tasks/' + task.id).set(task).then(setSyncDone).catch(() => { setSyncDone(); setSyncStatus('err', '同期エラー'); });
 }
 function deleteTaskFB(id) {
   setSyncSaving();
-  fbDb.ref(FB_REF + '/tasks/' + id).remove().then(setSyncDone).catch(() => setSyncStatus('err', '同期エラー'));
+  fbDb.ref(FB_REF + '/tasks/' + id).remove().then(setSyncDone).catch(() => { setSyncDone(); setSyncStatus('err', '同期エラー'); });
 }
 function saveEventFB(ev) {
   setSyncSaving();
-  fbDb.ref(FB_REF + '/events/' + ev.id).set(ev).then(setSyncDone).catch(() => setSyncStatus('err', '同期エラー'));
+  fbDb.ref(FB_REF + '/events/' + ev.id).set(ev).then(setSyncDone).catch(() => { setSyncDone(); setSyncStatus('err', '同期エラー'); });
 }
 function deleteEventFB(id) {
   setSyncSaving();
-  fbDb.ref(FB_REF + '/events/' + id).remove().then(setSyncDone).catch(() => setSyncStatus('err', '同期エラー'));
+  fbDb.ref(FB_REF + '/events/' + id).remove().then(setSyncDone).catch(() => { setSyncDone(); setSyncStatus('err', '同期エラー'); });
 }
 function saveRoutineFB(r) {
   setSyncSaving();
-  fbDb.ref(FB_REF + '/routines/' + r.id).set(r).then(setSyncDone).catch(() => setSyncStatus('err', '同期エラー'));
+  fbDb.ref(FB_REF + '/routines/' + r.id).set(r).then(setSyncDone).catch(() => { setSyncDone(); setSyncStatus('err', '同期エラー'); });
 }
 function deleteRoutineFB(id) {
   setSyncSaving();
-  fbDb.ref(FB_REF + '/routines/' + id).remove().then(setSyncDone).catch(() => setSyncStatus('err', '同期エラー'));
+  fbDb.ref(FB_REF + '/routines/' + id).remove().then(setSyncDone).catch(() => { setSyncDone(); setSyncStatus('err', '同期エラー'); });
 }
 function saveMetaFB() {
   setSyncSaving();
@@ -819,7 +819,7 @@ function saveMetaFB() {
     eventsManuallyOrdered: DB.eventsManuallyOrdered || false,
     eventTasksSeeded: DB.eventTasksSeeded || false,
   };
-  fbDb.ref(FB_REF + '/meta').update(meta).then(setSyncDone).catch(() => setSyncStatus('err', '同期エラー'));
+  fbDb.ref(FB_REF + '/meta').update(meta).then(setSyncDone).catch(() => { setSyncDone(); setSyncStatus('err', '同期エラー'); });
 }
 // ---- 相続一括インポート ----
 async function souzokuBulkImport() {
@@ -945,7 +945,7 @@ async function arrchBulkImport() {
 
 function saveEventTypeColorsFB() {
   setSyncSaving();
-  fbDb.ref(FB_REF + '/meta/eventTypeColors').set(DB.eventTypeColors || {}).then(setSyncDone).catch(() => setSyncStatus('err', '同期エラー'));
+  fbDb.ref(FB_REF + '/meta/eventTypeColors').set(DB.eventTypeColors || {}).then(setSyncDone).catch(() => { setSyncDone(); setSyncStatus('err', '同期エラー'); });
 }
 
 // 種別バッジHTML（DB色があればインラインスタイル、なければCSSクラス）
@@ -1026,7 +1026,7 @@ function clearTypeColor(type) {
 
 function saveTemplatesFB() {
   setSyncSaving();
-  fbDb.ref(FB_REF + '/templates').set(DB.templates || null).then(setSyncDone).catch(() => setSyncStatus('err', '同期エラー'));
+  fbDb.ref(FB_REF + '/templates').set(DB.templates || null).then(setSyncDone).catch(() => { setSyncDone(); setSyncStatus('err', '同期エラー'); });
 }
 
 // カウンター・フラグのみ保存（eventTypes/assigneesは上書きしない）
@@ -1038,7 +1038,7 @@ function saveCountersFB() {
     nextRt: DB.nextRt,
     eventsManuallyOrdered: DB.eventsManuallyOrdered || false,
     eventTasksSeeded: DB.eventTasksSeeded || false,
-  }).then(setSyncDone).catch(() => setSyncStatus('err', '同期エラー'));
+  }).then(setSyncDone).catch(() => { setSyncDone(); setSyncStatus('err', '同期エラー'); });
 }
 
 function fbDataToDB(raw) {
@@ -1083,14 +1083,21 @@ const _deletedEvIds      = new Set(); // 削除済みイベントID（Firebase�
 const _deletedTaskIds    = new Set(); // 削除済みタスクID
 
 function saveTaskFB_withSnapshot(task) {
-  _localTaskSnapshot.set(task.id, JSON.parse(JSON.stringify(task)));
-  setTimeout(() => _localTaskSnapshot.delete(task.id), 10000);
-  saveTaskFB(task);
+  const snap = JSON.parse(JSON.stringify(task));
+  _localTaskSnapshot.set(task.id, snap);
+  // Firebase確認後に解除、失敗時は60秒保持（接続エラー中の上書き防止）
+  setSyncSaving();
+  fbDb.ref(FB_REF + '/tasks/' + task.id).set(snap)
+    .then(() => { setSyncDone(); setTimeout(() => _localTaskSnapshot.delete(task.id), 2000); })
+    .catch(() => { setSyncDone(); setSyncStatus('err', '同期エラー'); setTimeout(() => _localTaskSnapshot.delete(task.id), 60000); });
 }
 function saveEventFB_withSnapshot(ev) {
-  _localEvSnapshot.set(ev.id, JSON.parse(JSON.stringify(ev)));
-  setTimeout(() => _localEvSnapshot.delete(ev.id), 10000);
-  saveEventFB(ev);
+  const snap = JSON.parse(JSON.stringify(ev));
+  _localEvSnapshot.set(ev.id, snap);
+  setSyncSaving();
+  fbDb.ref(FB_REF + '/events/' + ev.id).set(snap)
+    .then(() => { setSyncDone(); setTimeout(() => _localEvSnapshot.delete(ev.id), 2000); })
+    .catch(() => { setSyncDone(); setSyncStatus('err', '同期エラー'); setTimeout(() => _localEvSnapshot.delete(ev.id), 60000); });
 }
 function deleteEventFB_tracked(id) {
   _deletedEvIds.add(id);
@@ -2849,10 +2856,10 @@ function ensureArrchTemplates() {
 function saveProjectTemplatesFB() {
   if (currentProject === 'souzoku') {
     setSyncSaving();
-    fbDb.ref(FB_REF + '/souzokuTemplates').set(DB.souzokuTemplates || null).then(setSyncDone).catch(() => setSyncStatus('err', '同期エラー'));
+    fbDb.ref(FB_REF + '/souzokuTemplates').set(DB.souzokuTemplates || null).then(setSyncDone).catch(() => { setSyncDone(); setSyncStatus('err', '同期エラー'); });
   } else if (currentProject === 'arrch') {
     setSyncSaving();
-    fbDb.ref(FB_REF + '/arrchTemplates').set(DB.arrchTemplates || null).then(setSyncDone).catch(() => setSyncStatus('err', '同期エラー'));
+    fbDb.ref(FB_REF + '/arrchTemplates').set(DB.arrchTemplates || null).then(setSyncDone).catch(() => { setSyncDone(); setSyncStatus('err', '同期エラー'); });
   } else {
     saveTemplatesFB();
   }
