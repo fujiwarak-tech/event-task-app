@@ -289,8 +289,7 @@ body { font-family: 'Helvetica Neue', Arial, 'Hiragino Sans', 'Yu Gothic', sans-
     <button class="proj-btn" id="proj-souzoku" onclick="switchProject('souzoku')">相続</button>
     <button class="proj-btn" id="proj-arrch" onclick="switchProject('arrch')">ARRCH</button>
   </div>
-  <button id="arrch-import-btn" onclick="arrchBulkImport()" style="margin-left:10px;padding:3px 10px;background:#fff3cd;border:1.5px solid #e0a800;border-radius:10px;font-size:11px;font-weight:700;color:#856404;cursor:pointer">📥 ARRCHインポート</button>
-  <button id="souzoku-import-btn" onclick="souzokuBulkImport()" style="margin-left:6px;padding:3px 10px;background:#e8f4fd;border:1.5px solid #3498db;border-radius:10px;font-size:11px;font-weight:700;color:#1a5276;cursor:pointer">📥 相続インポート</button>
+  <button onclick="loadFromFirebase(false)" title="今すぐ同期" style="margin-left:6px;padding:3px 8px;background:rgba(255,255,255,0.15);border:1.5px solid rgba(255,255,255,0.4);border-radius:10px;font-size:11px;font-weight:700;color:white;cursor:pointer">🔄 同期</button>
   <div class="sync-indicator">
     <span class="sync-text" id="sync-text">接続中...</span>
     <span class="sync-dot ing" id="sync-dot"></span>
@@ -1110,33 +1109,66 @@ function deleteTaskFB_tracked(id) {
   deleteTaskFB(id);
 }
 
-// リアルタイムリスナー（他のユーザーの変更を即時反映）
-fbDb.ref(FB_REF).on('value', (snapshot) => {
-  if (isSavingToFB) return;
-  const raw = snapshot.val();
-  if (!raw) return;
-  const newDB = fbDataToDB(raw);
-  if (!newDB.events || newDB.events.length === 0) return;
-  fbInitialized = true; // Firebase初期ロード完了
-  // 削除済みIDをFirebaseデータから除外（復活防止）
-  newDB.events = newDB.events.filter(e => !_deletedEvIds.has(e.id));
-  newDB.tasks  = newDB.tasks.filter(t  => !_deletedTaskIds.has(t.id));
-  // ローカルで最近変更したアイテムはFirebase側の古いデータで上書きしない
-  newDB.events = newDB.events.map(e => _localEvSnapshot.has(e.id)   ? _localEvSnapshot.get(e.id)   : e);
-  newDB.tasks  = newDB.tasks.map(t  => _localTaskSnapshot.has(t.id) ? _localTaskSnapshot.get(t.id) : t);
-  DB = { ...DB, ...newDB };
-  const migrated = migrateDB();
-  localStorage.setItem('pg-ev-db', JSON.stringify(DB));
-  renderCurrent();
-  renderAssigneeFilters();
-  renderPersonalFilters();
-  setSyncStatus('ok', '同期済み');
-  if (migrated) {
-    saveMetaFB();
-    (migrateDB._personalTasks || []).forEach(t => saveTaskFB(t));
-    migrateDB._personalTasks = [];
-  }
-}, () => setSyncStatus('err', '接続エラー'));
+// ================================================================
+// Firebase 読み込み（リアルタイムリスナーを廃止 → once方式に変更）
+// リアルタイムリスナーは「接続再確立時に古いデータを復元する」問題を引き起こすため、
+// 起動時1回のみ読み込み + 5分ごとのバックグラウンド差分同期に変更。
+// ================================================================
+
+let _lastFbLoad = 0; // 最後にFirebaseから読み込んだ時刻（ms）
+
+function loadFromFirebase(isInitial) {
+  setSyncStatus('ing', '読込中...');
+  fbDb.ref(FB_REF).once('value')
+    .then((snapshot) => {
+      const raw = snapshot.val();
+      if (!raw) { setSyncStatus('ok', '同期済み'); return; }
+      const newDB = fbDataToDB(raw);
+      if (!newDB.events || newDB.events.length === 0) { setSyncStatus('ok', '同期済み'); return; }
+      fbInitialized = true;
+      _lastFbLoad = Date.now();
+
+      if (isInitial) {
+        // 初回: Firebaseデータを全面採用（localStorageより新しいことを優先）
+        DB = { ...DB, ...newDB };
+      } else {
+        // 定期更新: 自分が最近変更したアイテムは上書きしない
+        newDB.events = newDB.events.filter(e => !_deletedEvIds.has(e.id));
+        newDB.tasks  = newDB.tasks.filter(t  => !_deletedTaskIds.has(t.id));
+        newDB.events = newDB.events.map(e => _localEvSnapshot.has(e.id)   ? _localEvSnapshot.get(e.id)   : e);
+        newDB.tasks  = newDB.tasks.map(t  => _localTaskSnapshot.has(t.id) ? _localTaskSnapshot.get(t.id) : t);
+        // 削除済みIDはFirebaseにも存在しないはずなので復活しないが念のため除外
+        const merged = { ...DB, ...newDB };
+        // ローカルに存在してFirebaseにないタスク（完全ローカル保存分）を保持
+        const fbTaskIds = new Set(newDB.tasks.map(t => t.id));
+        DB.tasks.forEach(t => { if (!fbTaskIds.has(t.id) && !_deletedTaskIds.has(t.id)) merged.tasks.push(t); });
+        const fbEvIds = new Set(newDB.events.map(e => e.id));
+        DB.events.forEach(e => { if (!fbEvIds.has(e.id) && !_deletedEvIds.has(e.id)) merged.events.push(e); });
+        DB = merged;
+      }
+
+      const migrated = migrateDB();
+      localStorage.setItem('pg-ev-db', JSON.stringify(DB));
+      renderCurrent();
+      renderAssigneeFilters();
+      renderPersonalFilters();
+      setSyncStatus('ok', '同期済み');
+      if (migrated) {
+        saveMetaFB();
+        (migrateDB._personalTasks || []).forEach(t => saveTaskFB(t));
+        migrateDB._personalTasks = [];
+      }
+    })
+    .catch(() => setSyncStatus('err', '接続エラー'));
+}
+
+// 起動時に1回だけ読み込む
+loadFromFirebase(true);
+
+// 5分ごとにバックグラウンドで差分同期（書き込み中は跳ばす）
+setInterval(() => {
+  if (!isSavingToFB) loadFromFirebase(false);
+}, 5 * 60 * 1000);
 
 // ================================================================
 // STORAGE
