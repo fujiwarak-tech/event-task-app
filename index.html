@@ -95,7 +95,10 @@ body { font-family: 'Helvetica Neue', Arial, 'Hiragino Sans', 'Yu Gothic', sans-
 .personal-task-row { display: flex; align-items: center; gap: 10px; padding: 9px 18px; border-bottom: 1px solid #f5f5f5; }
 .personal-task-row:last-child { border-bottom: none; }
 .personal-task-row.is-overdue { background: #fff8f8; }
-.personal-task-row.done-row { opacity: 0.5; }
+.personal-task-row.done-row { background: #f5f5f5; }
+.personal-task-row.done-row .task-name-cell { text-decoration: line-through; color: #bbb; }
+.personal-task-row.done-row .due-cell { color: #ccc; }
+.personal-task-row.done-row .personal-event-label { opacity: 0.4; }
 .personal-event-label { font-size: 11px; color: #999; background: #f3f4f6; border-radius: 4px; padding: 1px 6px; white-space: nowrap; max-width: 120px; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
 .due-cell { font-size: 12px; color: #999; white-space: nowrap; min-width: 90px; }
 .due-cell.overdue { color: #e53935; font-weight: 700; }
